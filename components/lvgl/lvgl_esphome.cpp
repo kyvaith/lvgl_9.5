@@ -2210,10 +2210,7 @@ void LvglComponent::write_random_() {
     col = col / this->draw_rounding * this->draw_rounding;
     auto row = random_uint32() % this->height_;
     row = row / this->draw_rounding * this->draw_rounding;
-    auto raw_size = (random_uint32() % 32) / this->draw_rounding * this->draw_rounding;
-    if (raw_size == 0)
-      continue;
-    auto size = raw_size - 1;
+    auto size = ((random_uint32() % 32) / this->draw_rounding + 2) * this->draw_rounding - 1;
     lv_area_t area;
     area.x1 = col;
     area.y1 = row;
