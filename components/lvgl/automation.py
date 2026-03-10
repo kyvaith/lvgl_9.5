@@ -282,7 +282,9 @@ async def resume_action_to_code(config, action_id, template_arg, args):
     return var
 
 
-@automation.register_action("lvgl.widget.disable", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True)
+@automation.register_action(
+    "lvgl.widget.disable", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True
+)
 async def obj_disable_to_code(config, action_id, template_arg, args):
     async def do_disable(widget: Widget):
         widget.add_state(LV_STATE.DISABLED)
@@ -292,7 +294,9 @@ async def obj_disable_to_code(config, action_id, template_arg, args):
     )
 
 
-@automation.register_action("lvgl.widget.enable", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True)
+@automation.register_action(
+    "lvgl.widget.enable", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True
+)
 async def obj_enable_to_code(config, action_id, template_arg, args):
     async def do_enable(widget: Widget):
         widget.clear_state(LV_STATE.DISABLED)
@@ -302,7 +306,9 @@ async def obj_enable_to_code(config, action_id, template_arg, args):
     )
 
 
-@automation.register_action("lvgl.widget.hide", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True)
+@automation.register_action(
+    "lvgl.widget.hide", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True
+)
 async def obj_hide_to_code(config, action_id, template_arg, args):
     async def do_hide(widget: Widget):
         widget.add_flag("LV_OBJ_FLAG_HIDDEN")
@@ -311,7 +317,9 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
     return await action_to_code(widgets, do_hide, action_id, template_arg, args)
 
 
-@automation.register_action("lvgl.widget.show", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True)
+@automation.register_action(
+    "lvgl.widget.show", ObjUpdateAction, LIST_ACTION_SCHEMA, synchronous=True
+)
 async def obj_show_to_code(config, action_id, template_arg, args):
     async def do_show(widget: Widget):
         widget.clear_flag("LV_OBJ_FLAG_HIDDEN")
@@ -393,7 +401,9 @@ async def widget_focus(config, action_id, template_arg, args):
 
 
 @automation.register_action(
-    "lvgl.widget.update", ObjUpdateAction, base_update_schema(lv_obj_base_t, PARTS),
+    "lvgl.widget.update",
+    ObjUpdateAction,
+    base_update_schema(lv_obj_base_t, PARTS),
     synchronous=True,
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
