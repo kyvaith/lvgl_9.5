@@ -256,10 +256,22 @@ STYLE_PROPS = {
     "margin_bottom": lvalid.padding,
     "margin_left": lvalid.padding,
     "margin_right": lvalid.padding,
-    # LVGL 9.5: Text outline/stroke
-    "text_outline_color": lvalid.lv_color,
-    "text_outline_opa": lvalid.opacity,
-    "text_outline_width": lvalid.lv_positive_int,
+    # LVGL 9.5: Text outline stroke
+    "text_outline_stroke_color": lvalid.lv_color,
+    "text_outline_stroke_opa": lvalid.opacity,
+    "text_outline_stroke_width": lvalid.lv_positive_int,
+    # LVGL 9.5: Drop shadow (independent from regular shadow)
+    "drop_shadow_radius": lvalid.lv_positive_int,
+    "drop_shadow_offset_x": lvalid.lv_int,
+    "drop_shadow_offset_y": lvalid.lv_int,
+    "drop_shadow_color": lvalid.lv_color,
+    "drop_shadow_opa": lvalid.opacity,
+    "drop_shadow_quality": df.LvConstant(
+        "LV_BLUR_QUALITY_", "SPEED", "PRECISION", "AUTO"
+    ).one_of,
+    # LVGL 9.5: Additional image properties
+    "image_colorkey": lvalid.lv_color,
+    "arc_image_src": lvalid.lv_image,
 }
 
 STYLE_REMAP = {

@@ -719,10 +719,22 @@ CONF_MARGIN_BOTTOM = "margin_bottom"
 CONF_MARGIN_LEFT = "margin_left"
 CONF_MARGIN_RIGHT = "margin_right"
 
-# LVGL 9.5 text outline properties
-CONF_TEXT_OUTLINE_COLOR = "text_outline_color"
-CONF_TEXT_OUTLINE_OPA = "text_outline_opa"
-CONF_TEXT_OUTLINE_WIDTH = "text_outline_width"
+# LVGL 9.5 text outline stroke properties
+CONF_TEXT_OUTLINE_STROKE_COLOR = "text_outline_stroke_color"
+CONF_TEXT_OUTLINE_STROKE_OPA = "text_outline_stroke_opa"
+CONF_TEXT_OUTLINE_STROKE_WIDTH = "text_outline_stroke_width"
+
+# LVGL 9.5 drop shadow properties
+CONF_DROP_SHADOW_RADIUS = "drop_shadow_radius"
+CONF_DROP_SHADOW_OFFSET_X = "drop_shadow_offset_x"
+CONF_DROP_SHADOW_OFFSET_Y = "drop_shadow_offset_y"
+CONF_DROP_SHADOW_COLOR = "drop_shadow_color"
+CONF_DROP_SHADOW_OPA = "drop_shadow_opa"
+CONF_DROP_SHADOW_QUALITY = "drop_shadow_quality"
+
+# LVGL 9.5 additional image properties
+CONF_IMAGE_COLORKEY = "image_colorkey"
+CONF_ARC_IMAGE_SRC = "arc_image_src"
 
 # LVGL 9.5 rotary encoder sensitivity
 CONF_ROTARY_SENSITIVITY = "rotary_sensitivity"
