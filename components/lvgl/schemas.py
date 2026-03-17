@@ -241,7 +241,9 @@ STYLE_PROPS = {
     # LVGL 9.5: Blur / Frosted Glass properties
     "blur_radius": lvalid.lv_positive_int,
     "blur_backdrop": lvalid.lv_positive_int,
-    "blur_quality": lvalid.lv_positive_int,
+    "blur_quality": df.LvConstant(
+        "LV_BLUR_QUALITY_", "SPEED", "PRECISION", "AUTO"
+    ).one_of,
     # LVGL 9.5: Gradient per-stop opacity
     "bg_main_opa": lvalid.opacity,
     "bg_grad_opa": lvalid.opacity,

@@ -72,7 +72,7 @@ lvgl:
             bg_color: 0xFFFFFF
             bg_opa: 30%
             blur_backdrop: 15
-            blur_quality: 1
+            blur_quality: AUTO
             border_width: 1
             border_color: 0xFFFFFF
             border_opa: 40%
@@ -118,7 +118,7 @@ lvgl:
             bg_color: 0x9C27B0
             bg_opa: 50%
             blur_backdrop: 20
-            blur_quality: 2
+            blur_quality: PRECISION
             widgets:
               - label:
                   text: "HQ Blur"
@@ -478,7 +478,7 @@ lvgl:
             bg_color: 0xFFFFFF
             bg_opa: 20%
             blur_backdrop: 20
-            blur_quality: 1
+            blur_quality: AUTO
             # Subtle border
             border_width: 1
             border_color: 0xFFFFFF
