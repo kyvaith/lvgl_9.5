@@ -434,6 +434,12 @@ async def to_code(configs):
         df.add_define("LV_USE_BMP", "0")
         df.add_define("LV_USE_GIF", "0")
 
+    # Signal to lvgl_build_filter.py which widgets are used, so it can
+    # skip compiling LVGL widget source files that aren't needed.
+    # Format: comma-separated list of lowercase LVGL widget names.
+    widget_names = ",".join(sorted(use.lower() for use in helpers.lv_uses))
+    cg.add_build_flag(f'-DLVGL_WIDGETS_USED=\\"{widget_names}\\"')
+
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")

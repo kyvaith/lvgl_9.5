@@ -1,21 +1,90 @@
 """
 PlatformIO build filter for LVGL on ESP32.
 
-Excludes platform-specific drivers, draw backends, and libraries that are
-not relevant for ESP32 targets. Also conditionally excludes ThorVG/SVG/Lottie
-when not needed. This significantly reduces compilation time and binary size.
+Excludes platform-specific drivers, draw backends, libraries, and unused
+widget source files. This significantly reduces compilation time and binary size.
 
 Used as a PlatformIO extra_scripts middleware, added by ESPHome's LVGL component.
 
-The script checks build flags for -DLVGL_USE_THORVG=1 to determine whether
-ThorVG-related files should be compiled.
+Communication from ESPHome (__init__.py) via build flags:
+  -DLVGL_USE_THORVG=1        → compile ThorVG sources
+  -DLVGL_WIDGETS_USED="..."  → comma-separated list of used widget/feature names
 """
+import re
 
 Import("env")
 
-# Check if ThorVG is enabled via build flags set by __init__.py
+# Parse build flags from ESPHome's __init__.py
 _build_flags = " ".join(env.get("BUILD_FLAGS", []))
 _thorvg_enabled = "LVGL_USE_THORVG=1" in _build_flags
+
+# Extract used widgets list from build flags
+# Format: -DLVGL_WIDGETS_USED=\"label,button,slider,...\"
+_used_widgets = set()
+_match = re.search(r'LVGL_WIDGETS_USED=\\"([^"]*)\\"', _build_flags)
+if not _match:
+    _match = re.search(r'LVGL_WIDGETS_USED="([^"]*)"', _build_flags)
+if _match:
+    _used_widgets = set(_match.group(1).split(","))
+
+# Mapping from lv_uses names (ESPHome) to LVGL source file names
+# ESPHome widget name → LVGL 9.x source file name (without lv_ prefix and .c/.h)
+# Only widgets that have a DIFFERENT name in the LVGL C source need mapping.
+# Most widgets have the same name (e.g., "label" → "lv_label.c")
+_WIDGET_NAME_TO_LVGL_FILE = {
+    "btn": "button",          # ESPHome get_uses() returns "btn", LVGL file is lv_button.c
+    "btnmatrix": "buttonmatrix",
+    "img": "image",           # LVGL 9.x renamed lv_img → lv_image
+    "imgbtn": "imagebutton",  # LVGL 9.x renamed
+}
+
+# All LVGL widget source files (in src/widgets/) and their corresponding
+# ESPHome lv_uses name. When a widget is NOT in lv_uses, its source file
+# will be excluded from compilation.
+_LVGL_WIDGET_FILES = {
+    # LVGL file base name → set of ESPHome lv_uses names that require it
+    "animimage": {"animimg", "animimage"},
+    "arc": {"arc"},
+    "bar": {"bar"},
+    "button": {"button", "btn"},
+    "buttonmatrix": {"buttonmatrix", "btnmatrix"},
+    "calendar": {"calendar"},
+    "canvas": {"canvas"},
+    "chart": {"chart"},
+    "checkbox": {"checkbox"},
+    "dropdown": {"dropdown"},
+    "image": {"image", "img"},
+    "imagebutton": {"imgbtn", "imagebutton"},
+    "keyboard": {"keyboard"},
+    "label": {"label"},
+    "led": {"led"},
+    "line": {"line"},
+    "list": {"list"},
+    "lottie": {"lottie"},
+    "menu": {"menu"},
+    "msgbox": {"msgbox"},
+    "roller": {"roller"},
+    "scale": {"scale", "meter"},
+    "slider": {"slider"},
+    "span": {"span", "spangroup"},
+    "spinbox": {"spinbox"},
+    "spinner": {"spinner"},
+    "switch": {"switch"},
+    "table": {"table"},
+    "tabview": {"tabview"},
+    "textarea": {"textarea"},
+    "tileview": {"tileview"},
+    "win": {"win"},
+}
+
+# Determine which LVGL widget files are needed
+_needed_widget_files = set()
+for lvgl_file, use_names in _LVGL_WIDGET_FILES.items():
+    if use_names & _used_widgets:
+        _needed_widget_files.add(lvgl_file)
+
+# QR code is in libs/qrcode/, not widgets/
+_qrcode_needed = "qrcode" in _used_widgets
 
 
 def lvgl_src_filter(env, node):
@@ -111,7 +180,7 @@ def lvgl_src_filter(env, node):
         "/debugging/sysmon/lv_sysmon.",     # System monitor
     ]
 
-    # Combine all exclusions
+    # Combine platform exclusions (always applied)
     all_excluded = (
         EXCLUDED_DRAW
         + EXCLUDED_DRIVERS
@@ -122,7 +191,6 @@ def lvgl_src_filter(env, node):
     )
 
     # ===== Conditionally exclude ThorVG/SVG/Lottie when not needed =====
-    # This is the biggest flash savings (~500KB-1MB)
     if not _thorvg_enabled:
         all_excluded += [
             "/libs/thorvg/",           # ThorVG vector engine (~500KB+)
@@ -132,9 +200,30 @@ def lvgl_src_filter(env, node):
             "/draw/sw/lv_draw_sw_vector.",  # SW vector renderer
         ]
 
+    # ===== Conditionally exclude QR code library =====
+    if not _qrcode_needed:
+        all_excluded.append("/libs/qrcode/")
+
+    # ===== Conditionally exclude GIF library =====
+    if "image" not in _used_widgets and "animimg" not in _used_widgets:
+        all_excluded.append("/libs/gif/")
+        all_excluded.append("/libs/bmp/")
+
+    # Check platform/library exclusions first
     for pattern in all_excluded:
         if pattern in path:
             return None  # Skip this file
+
+    # ===== Per-widget source file exclusion =====
+    # Only apply to files in LVGL's widgets/ directory
+    if _used_widgets and "/widgets/lv_" in path:
+        # Extract widget file name: .../widgets/lv_button.c → "button"
+        match = re.search(r"/widgets/lv_(\w+)\.[ch]", path)
+        if match:
+            widget_file_name = match.group(1)
+            # Check if this widget file is needed
+            if widget_file_name not in _needed_widget_files:
+                return None  # Skip: widget not used
 
     return node
 
