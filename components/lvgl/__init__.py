@@ -211,6 +211,11 @@ async def to_code(configs):
     cg.add_library("lvgl/lvgl", "9.5.0")
     cg.add_define("USE_LVGL")
 
+    # Add build filter to exclude LVGL platform code not needed for ESP32
+    # This reduces compilation time and binary size significantly
+    build_filter_script = Path(__file__).parent / "lvgl_build_filter.py"
+    cg.add_platformio_option("extra_scripts", [f"pre:{build_filter_script}"])
+
     # Define ESPHOME_ENTITY_BUTTON_COUNT for ESPHome core compatibility
     # This is required by application.h even when not using button entities
     cg.add_define("ESPHOME_ENTITY_BUTTON_COUNT", 0)
