@@ -240,7 +240,7 @@ STYLE_PROPS = {
     "y": lvalid.pixels_or_percent,
     # LVGL 9.5: Blur / Frosted Glass properties
     "blur_radius": lvalid.lv_positive_int,
-    "blur_backdrop": lvalid.lv_positive_int,
+    "blur_backdrop": lvalid.lv_bool,
     "blur_quality": df.LvConstant(
         "LV_BLUR_QUALITY_", "SPEED", "PRECISION", "AUTO"
     ).one_of,

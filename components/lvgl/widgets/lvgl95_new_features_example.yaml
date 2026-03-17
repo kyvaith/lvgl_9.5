@@ -62,7 +62,9 @@ lvgl:
             align: center
 
         # --- Example 1: Frosted Glass Card ---
-        # blur_backdrop blurs everything BEHIND this object (like CSS backdrop-filter)
+        # blur_backdrop: true = blurs the BACKGROUND behind the widget (like CSS backdrop-filter)
+        # blur_radius = intensity of the blur (in pixels)
+        # The widget must have bg_opa < 100% to see the blur effect behind it
         - obj:
             id: frosted_card
             align: center
@@ -71,7 +73,8 @@ lvgl:
             radius: 20
             bg_color: 0xFFFFFF
             bg_opa: 30%
-            blur_backdrop: 15
+            blur_radius: 15
+            blur_backdrop: true
             blur_quality: AUTO
             border_width: 1
             border_color: 0xFFFFFF
@@ -85,12 +88,12 @@ lvgl:
                   align: top_mid
 
               - label:
-                  text: "blur_backdrop: 15"
+                  text: "backdrop blur"
                   text_color: white
                   align: center
 
-        # --- Example 2: Blurred Object ---
-        # blur_radius blurs the CONTENT of this object itself
+        # --- Example 2: Content Blur (blur_backdrop: false) ---
+        # blur_backdrop: false (default) = blurs the widget's OWN content
         - obj:
             align: bottom_left
             x: 20
@@ -101,13 +104,14 @@ lvgl:
             bg_color: 0x2196F3
             bg_opa: 80%
             blur_radius: 10
+            blur_backdrop: false
             widgets:
               - label:
                   text: "Content Blur"
                   text_color: white
                   align: center
 
-        # --- Example 3: High Quality Blur ---
+        # --- Example 3: High Quality Backdrop Blur ---
         - obj:
             align: bottom_right
             x: -20
@@ -117,11 +121,12 @@ lvgl:
             radius: 12
             bg_color: 0x9C27B0
             bg_opa: 50%
-            blur_backdrop: 20
+            blur_radius: 20
+            blur_backdrop: true
             blur_quality: PRECISION
             widgets:
               - label:
-                  text: "HQ Blur"
+                  text: "HQ Backdrop"
                   text_color: white
                   align: center
 
@@ -477,7 +482,8 @@ lvgl:
             # Frosted glass effect
             bg_color: 0xFFFFFF
             bg_opa: 20%
-            blur_backdrop: 20
+            blur_radius: 20
+            blur_backdrop: true
             blur_quality: AUTO
             # Subtle border
             border_width: 1
