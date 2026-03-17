@@ -10,14 +10,12 @@ from ..defines import (
 from ..helpers import lvgl_components_required
 from ..lv_validation import lv_image, lv_text
 from ..lvcode import lv
-from ..types import LvCompound
+from ..types import LvType
 from . import Widget, WidgetType
 
 CONF_LIST = "list"
-CONF_LIST_BUTTON = "list_button"
-CONF_LIST_TEXT = "list_text"
 
-lv_list_t = LvCompound("lv_list_t")
+lv_list_t = LvType("lv_list_t")
 
 # Item types
 ITEM_TYPE_BUTTON = "button"

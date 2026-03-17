@@ -215,13 +215,13 @@ def lvgl_src_filter(env, node):
             return None  # Skip this file
 
     # ===== Per-widget source file exclusion =====
-    # Only apply to files in LVGL's widgets/ directory
-    if _used_widgets and "/widgets/lv_" in path:
-        # Extract widget file name: .../widgets/lv_button.c → "button"
-        match = re.search(r"/widgets/lv_(\w+)\.[ch]", path)
+    # LVGL v9.x uses subdirectories: src/widgets/menu/lv_menu.c
+    # LVGL v8.x used flat layout: src/widgets/lv_menu.c
+    # Support both patterns.
+    if _used_widgets and "/widgets/" in path and "/lv_" in path:
+        match = re.search(r"/widgets/(?:\w+/)?lv_(\w+)\.[ch]", path)
         if match:
             widget_file_name = match.group(1)
-            # Check if this widget file is needed
             if widget_file_name not in _needed_widget_files:
                 return None  # Skip: widget not used
 

@@ -23,8 +23,8 @@ from ..defines import (
     literal,
 )
 from ..helpers import lvgl_components_required
-from ..lv_validation import lv_bool, lv_text, size
-from ..lvcode import lv, lv_expr
+from ..lv_validation import lv_bool, lv_text
+from ..lvcode import lv, lv_assign, lv_expr, lv_Pvariable
 from ..schemas import container_schema
 from ..types import LvType, lv_obj_t
 from . import Widget, WidgetType, add_widgets, set_obj_properties
@@ -36,7 +36,7 @@ CONF_ROOT_BACK_BUTTON = "root_back_button"
 CONF_SIDEBAR_PAGE = "sidebar_page"
 
 lv_menu_t = LvType("lv_menu_t")
-lv_menu_page_t = LvType("lv_menu_page_t")
+lv_menu_page_t = LvType("lv_obj_t")
 
 # Menu modes
 MENU_MODE_ROOT = "ROOT"
@@ -92,25 +92,26 @@ class MenuType(WidgetType):
 
         # Set root back button mode
         if config.get(CONF_ROOT_BACK_BUTTON):
-            lv.menu_set_mode_root_back_btn(w.obj, literal("LV_MENU_ROOT_BACK_BTN_ENABLED"))
+            lv.menu_set_mode_root_back_button(w.obj, literal("LV_MENU_ROOT_BACK_BUTTON_ENABLED"))
         else:
-            lv.menu_set_mode_root_back_btn(w.obj, literal("LV_MENU_ROOT_BACK_BTN_DISABLED"))
+            lv.menu_set_mode_root_back_button(w.obj, literal("LV_MENU_ROOT_BACK_BUTTON_DISABLED"))
 
         # Set sidebar page if specified
         if sidebar_page_id := config.get(CONF_SIDEBAR_PAGE):
-            sidebar_page = cg.get_variable(sidebar_page_id)
+            sidebar_page = await cg.get_variable(sidebar_page_id)
             lv.menu_set_sidebar_page(w.obj, sidebar_page)
 
     async def _create_page(self, w: Widget, page_conf):
         """Create a menu page with optional title and content"""
         page_id = page_conf[CONF_ID]
 
-        # Create the menu page
+        # Create the menu page variable (lv_obj_t *)
+        page_obj = lv_Pvariable(lv_obj_t, page_id)
         if CONF_TITLE in page_conf:
             title = await lv_text.process(page_conf[CONF_TITLE])
-            page_obj = cg.Pvariable(page_id, lv_expr.menu_page_create(w.obj, title))
+            lv_assign(page_obj, lv_expr.menu_page_create(w.obj, title))
         else:
-            page_obj = cg.Pvariable(page_id, lv_expr.menu_page_create(w.obj, literal("NULL")))
+            lv_assign(page_obj, lv_expr.menu_page_create(w.obj, literal("NULL")))
 
         # Create widget wrapper for the page
         page_widget = Widget.create(page_id, page_obj, obj_spec, page_conf)
