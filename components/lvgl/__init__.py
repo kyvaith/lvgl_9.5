@@ -392,6 +392,43 @@ async def to_code(configs):
         cg.add_define(f"USE_{use.upper()}")
 
     # ============================================
+    # DISABLE UNUSED LVGL WIDGETS
+    # ============================================
+    # LVGL's lv_conf_internal.h defaults LV_USE_<WIDGET>=1 for all widgets.
+    # lv_theme_default.c references widget _class symbols guarded by these defines.
+    # If we exclude a widget's source file via the build filter but don't set
+    # LV_USE_<WIDGET>=0, the theme still references the symbol → linker error.
+    #
+    # ESPHome names (from lv_uses) may differ from LVGL v9.x LV_USE_* names.
+    _ESPHOME_TO_LVGL_USE = {
+        "BTN": "BUTTON",
+        "BTNMATRIX": "BUTTONMATRIX",
+        "IMG": "IMAGE",
+        "IMGBTN": "IMAGEBUTTON",
+        "ANIMIMG": "ANIMIMAGE",
+        "METER": "SCALE",
+    }
+    # All LVGL v9.x widgets that have LV_USE_* defines in lv_conf_internal.h
+    _ALL_LVGL_WIDGETS = {
+        "ANIMIMAGE", "ARC", "BAR", "BUTTON", "BUTTONMATRIX",
+        "CALENDAR", "CANVAS", "CHART", "CHECKBOX", "DROPDOWN",
+        "IMAGE", "IMAGEBUTTON", "KEYBOARD", "LABEL", "LED",
+        "LINE", "LIST", "MENU", "MSGBOX", "ROLLER", "SCALE",
+        "SLIDER", "SPAN", "SPINBOX", "SPINNER", "SWITCH",
+        "TABLE", "TABVIEW", "TEXTAREA", "TILEVIEW", "WIN",
+    }
+    # Determine which LVGL widgets are actually used (mapped to LVGL v9 names)
+    _used_lvgl_widgets = set()
+    for use in helpers.lv_uses:
+        lvgl_name = _ESPHOME_TO_LVGL_USE.get(use.upper(), use.upper())
+        if lvgl_name in _ALL_LVGL_WIDGETS:
+            _used_lvgl_widgets.add(lvgl_name)
+            df.add_define(f"LV_USE_{lvgl_name}", "1")
+    # Explicitly disable unused widgets so lv_theme_default.c won't reference them
+    for widget in _ALL_LVGL_WIDGETS - _used_lvgl_widgets:
+        df.add_define(f"LV_USE_{widget}", "0")
+
+    # ============================================
     # CONDITIONAL HEAVY FEATURES (based on widget usage)
     # ============================================
     # Only enable ThorVG/SVG/Lottie/Vector Graphics if actually needed.
