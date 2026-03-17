@@ -2,13 +2,20 @@
 PlatformIO build filter for LVGL on ESP32.
 
 Excludes platform-specific drivers, draw backends, and libraries that are
-not relevant for ESP32 targets. This significantly reduces compilation time
-and prevents unnecessary code from being linked into the final binary.
+not relevant for ESP32 targets. Also conditionally excludes ThorVG/SVG/Lottie
+when not needed. This significantly reduces compilation time and binary size.
 
 Used as a PlatformIO extra_scripts middleware, added by ESPHome's LVGL component.
+
+The script checks build flags for -DLVGL_USE_THORVG=1 to determine whether
+ThorVG-related files should be compiled.
 """
 
 Import("env")
+
+# Check if ThorVG is enabled via build flags set by __init__.py
+_build_flags = " ".join(env.get("BUILD_FLAGS", []))
+_thorvg_enabled = "LVGL_USE_THORVG=1" in _build_flags
 
 
 def lvgl_src_filter(env, node):
@@ -113,6 +120,17 @@ def lvgl_src_filter(env, node):
         + EXCLUDED_STDLIB
         + EXCLUDED_DEBUG
     )
+
+    # ===== Conditionally exclude ThorVG/SVG/Lottie when not needed =====
+    # This is the biggest flash savings (~500KB-1MB)
+    if not _thorvg_enabled:
+        all_excluded += [
+            "/libs/thorvg/",           # ThorVG vector engine (~500KB+)
+            "/libs/lottie/",           # Lottie animation parser
+            "/libs/svg/",              # SVG parser
+            "/draw/lv_draw_vector.",   # Vector drawing operations
+            "/draw/sw/lv_draw_sw_vector.",  # SW vector renderer
+        ]
 
     for pattern in all_excluded:
         if pattern in path:

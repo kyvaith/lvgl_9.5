@@ -240,48 +240,23 @@ async def to_code(configs):
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
 
     # ============================================
-    # THORVG + SVG/LOTTIE SUPPORT (LVGL v9.5+)
+    # FEATURES DISABLED BY DEFAULT (enabled conditionally below)
     # ============================================
-    # Enable floating point support (required by matrix)
-    df.add_define("LV_USE_FLOAT", "1")
-    # Enable matrix support (required by vector graphics)
-    df.add_define("LV_USE_MATRIX", "1")
-    # Enable vector graphics support (required for SVG/Lottie)
-    df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
-    # Enable ThorVG vector graphics engine (built-in to LVGL v9)
-    df.add_define("LV_USE_THORVG_INTERNAL", "1")
-    # ThorVG optimizations for ESP32
-    df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")  # Optimize for 16-pixel alignment
+    # ThorVG, SVG, Lottie, Vector Graphics, Float, Matrix are ONLY
+    # enabled when the user actually uses svg: or lottie: widgets.
+    # This saves ~500KB-1MB of flash on ESP32 devices with limited storage.
+    # The conditional activation happens after widget processing (see below).
+
+    # Explicitly disable heavy features by default - they are enabled
+    # conditionally after widget processing if the user actually needs them.
+    df.add_define("LV_USE_LIBPNG", "0")
+    df.add_define("LV_USE_LIBWEBP", "0")
+
     # Enable FreeRTOS threading for LVGL draw operations
     # Note: atomic.h shim added in components/lvgl/ for ESP-IDF compatibility
     df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
-    # Draw thread stack size - 48KB for ThorVG rendering
-    df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
-    # Enable SVG support (requires ThorVG)
-    df.add_define("LV_USE_SVG", "1")
-    # Enable Lottie animation support (requires ThorVG)
-    df.add_define("LV_USE_LOTTIE", "1")
-    # Enable advanced image decoders
-    df.add_define("LV_USE_LIBPNG", "0")  # PNG support via pngdec (not libpng)
-    df.add_define("LV_USE_BMP", "1")      # BMP support
-    df.add_define("LV_USE_GIF", "1")      # GIF support (built-in gifdec decoder)
-    # WebP: LV_USE_LIBWEBP requires external libwebp (not available on ESP32).
-    # WebP decoding is handled by ThorVG's built-in WebP loader instead.
-    df.add_define("LV_USE_LIBWEBP", "0")
-    # Add pngdec library for PNG decoding (lightweight, no external deps)
-    cg.add_library("pngdec", "1.0.1")
 
-    # ============================================
-    # LVGL 9.5 NEW FEATURES
-    # ============================================
-    # Native blur & drop shadow - enabled by default in SW renderer
-    # Shadow styles (shadow_width, shadow_color, shadow_opa, shadow_spread,
-    # shadow_offset_x, shadow_offset_y) work natively on all targets
-    # Bézier curved charts (LV_CHART_TYPE_CURVE) require Vector Graphics (ThorVG above)
-    # LV_STATE_ALT - new widget state for dark/light mode switching
-    # LV_OBJ_FLAG_RADIO_BUTTON - new flag for radio group behavior
-
-    # LVGL 9.5: Enable blur/frosted glass support
+    # LVGL 9.5: Enable blur/frosted glass support (small code, useful for shadows)
     df.add_define("LV_USE_DRAW_SW_BLUR", "1")
 
     df.add_define(
@@ -415,6 +390,50 @@ async def to_code(configs):
         cg.add_define(f"USE_LVGL_{use.upper()}")
         # Also add the base USE_ define for ESPHome components (e.g., USE_FONT)
         cg.add_define(f"USE_{use.upper()}")
+
+    # ============================================
+    # CONDITIONAL HEAVY FEATURES (based on widget usage)
+    # ============================================
+    # Only enable ThorVG/SVG/Lottie/Vector Graphics if actually needed.
+    # This saves ~500KB-1MB of flash on ESP32 devices.
+    needs_thorvg = bool(
+        {"THORVG_INTERNAL", "SVG", "LOTTIE", "VECTOR_GRAPHIC"} & helpers.lv_uses
+    )
+
+    if needs_thorvg:
+        df.add_define("LV_USE_FLOAT", "1")
+        df.add_define("LV_USE_MATRIX", "1")
+        df.add_define("LV_USE_VECTOR_GRAPHIC", "1")
+        df.add_define("LV_USE_THORVG_INTERNAL", "1")
+        df.add_define("LV_VG_LITE_THORVG_16PIXELS_ALIGN", "1")
+        # Large stack for ThorVG rendering
+        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(48 * 1024)")
+        # pngdec only needed for ThorVG image pipeline
+        cg.add_library("pngdec", "1.0.1")
+        # Signal to lvgl_build_filter.py to compile ThorVG sources
+        cg.add_build_flag("-DLVGL_USE_THORVG=1")
+        df.LOGGER.info("ThorVG enabled (SVG/Lottie widgets detected)")
+    else:
+        df.add_define("LV_USE_FLOAT", "0")
+        df.add_define("LV_USE_MATRIX", "0")
+        df.add_define("LV_USE_VECTOR_GRAPHIC", "0")
+        df.add_define("LV_USE_THORVG_INTERNAL", "0")
+        df.add_define("LV_USE_SVG", "0")
+        df.add_define("LV_USE_LOTTIE", "0")
+        # Smaller stack when ThorVG is not used
+        df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(8 * 1024)")
+        df.LOGGER.info(
+            "ThorVG disabled (no SVG/Lottie widgets) - saving ~500KB flash"
+        )
+
+    # Image decoders: BMP and GIF are small, enable if IMAGE widget is used
+    if "IMAGE" in helpers.lv_uses or "ANIMIMG" in helpers.lv_uses:
+        df.add_define("LV_USE_BMP", "1")
+        df.add_define("LV_USE_GIF", "1")
+    else:
+        df.add_define("LV_USE_BMP", "0")
+        df.add_define("LV_USE_GIF", "0")
+
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")
