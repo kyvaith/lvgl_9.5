@@ -385,48 +385,60 @@ async def to_code(configs):
         "transform_scale_y",
     } & styles_used:
         df.add_define("LV_COLOR_SCREEN_TRANSP", "1")
-    for use in helpers.lv_uses:
-        df.add_define(f"LV_USE_{use.upper()}")
-        cg.add_define(f"USE_LVGL_{use.upper()}")
-        # Also add the base USE_ define for ESPHome components (e.g., USE_FONT)
-        cg.add_define(f"USE_{use.upper()}")
-
     # ============================================
-    # DISABLE UNUSED LVGL WIDGETS
+    # LV_USE_* WIDGET DEFINES
     # ============================================
     # LVGL's lv_conf_internal.h defaults LV_USE_<WIDGET>=1 for all widgets.
     # lv_theme_default.c references widget _class symbols guarded by these defines.
     # If we exclude a widget's source file via the build filter but don't set
-    # LV_USE_<WIDGET>=0, the theme still references the symbol → linker error.
+    # LV_USE_<WIDGET>=0, the theme still references the symbol -> linker error.
     #
-    # ESPHome names (from lv_uses) may differ from LVGL v9.x LV_USE_* names.
-    _ESPHOME_TO_LVGL_USE = {
-        "BTN": "BUTTON",
-        "BTNMATRIX": "BUTTONMATRIX",
-        "IMG": "IMAGE",
-        "IMGBTN": "IMAGEBUTTON",
-        "ANIMIMG": "ANIMIMAGE",
+    # IMPORTANT: Use CANONICAL define names (the ones with #ifndef guards in
+    # lv_conf_internal.h). LVGL v9.x uses short names as canonical and creates
+    # aliases for long names:
+    #   #ifndef LV_USE_BTN -> canonical (we can override)
+    #   #define LV_USE_BUTTON LV_USE_BTN -> alias (cannot override without warning)
+    #
+    # ESPHome lv_uses may contain both long names (from widget self.name, e.g. "button")
+    # and short names (from get_uses(), e.g. "btn"). Map all to canonical.
+    _TO_CANONICAL = {
+        "BUTTON": "BTN",
+        "BUTTONMATRIX": "BTNMATRIX",
+        "IMAGE": "IMG",
+        "IMAGEBUTTON": "IMGBTN",
+        "ANIMIMAGE": "ANIMIMG",
         "METER": "SCALE",
     }
-    # All LVGL v9.x widgets that have LV_USE_* defines in lv_conf_internal.h
-    _ALL_LVGL_WIDGETS = {
-        "ANIMIMAGE", "ARC", "BAR", "BUTTON", "BUTTONMATRIX",
+    # All canonical LV_USE_* widget define names in LVGL v9.x
+    _ALL_CANONICAL_WIDGETS = {
+        "ANIMIMG", "ARC", "BAR", "BTN", "BTNMATRIX",
         "CALENDAR", "CANVAS", "CHART", "CHECKBOX", "DROPDOWN",
-        "IMAGE", "IMAGEBUTTON", "KEYBOARD", "LABEL", "LED",
+        "IMG", "IMGBTN", "KEYBOARD", "LABEL", "LED",
         "LINE", "LIST", "MENU", "MSGBOX", "ROLLER", "SCALE",
         "SLIDER", "SPAN", "SPINBOX", "SPINNER", "SWITCH",
         "TABLE", "TABVIEW", "TEXTAREA", "TILEVIEW", "WIN",
     }
-    # Determine which LVGL widgets are actually used (mapped to LVGL v9 names)
-    _used_lvgl_widgets = set()
+
+    # Add ESPHome-specific defines; add LV_USE_* only for non-widget entries
     for use in helpers.lv_uses:
-        lvgl_name = _ESPHOME_TO_LVGL_USE.get(use.upper(), use.upper())
-        if lvgl_name in _ALL_LVGL_WIDGETS:
-            _used_lvgl_widgets.add(lvgl_name)
-            df.add_define(f"LV_USE_{lvgl_name}", "1")
-    # Explicitly disable unused widgets so lv_theme_default.c won't reference them
-    for widget in _ALL_LVGL_WIDGETS - _used_lvgl_widgets:
-        df.add_define(f"LV_USE_{widget}", "0")
+        upper = use.upper()
+        cg.add_define(f"USE_LVGL_{upper}")
+        cg.add_define(f"USE_{upper}")
+        canonical = _TO_CANONICAL.get(upper, upper)
+        if canonical not in _ALL_CANONICAL_WIDGETS:
+            # Non-widget entry (e.g. LOG, THEME_DEFAULT, USER_DATA)
+            df.add_define(f"LV_USE_{upper}")
+
+    # Determine which canonical widget defines are needed
+    _used_canonical = set()
+    for use in helpers.lv_uses:
+        canonical = _TO_CANONICAL.get(use.upper(), use.upper())
+        if canonical in _ALL_CANONICAL_WIDGETS:
+            _used_canonical.add(canonical)
+
+    # Set LV_USE_*=1 for used widgets, LV_USE_*=0 for unused (canonical names only)
+    for widget in _ALL_CANONICAL_WIDGETS:
+        df.add_define(f"LV_USE_{widget}", "1" if widget in _used_canonical else "0")
 
     # ============================================
     # CONDITIONAL HEAVY FEATURES (based on widget usage)
