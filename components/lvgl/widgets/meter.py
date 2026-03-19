@@ -482,6 +482,7 @@ class MeterType(WidgetType):
                         "arc_width": v[CONF_WIDTH],
                         "arc_color": v[CONF_COLOR],
                         "arc_opa": v[CONF_OPA],
+                        CONF_OPA: v[CONF_OPA],
                         "id": iid,
                         CONF_ALIGN: CHILD_ALIGNMENTS.CENTER,
                     }
