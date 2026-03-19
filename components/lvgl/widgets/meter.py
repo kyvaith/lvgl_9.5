@@ -370,9 +370,8 @@ class MeterType(WidgetType):
                 angle_range,
             )
 
-            # Set rotation if specified
-            if rotation:
-                lv.scale_set_rotation(scale_var, rotation)
+            # Always set rotation (0 is valid but falsy in Python)
+            lv.scale_set_rotation(scale_var, rotation)
 
             # Handle indicators BEFORE ticks (order matters for LVGL 9.5)
             for indicator in scale_conf.get(CONF_INDICATORS, ()):
