@@ -380,18 +380,22 @@ class MeterType(WidgetType):
                 iid = v[CONF_ID]
 
                 # Set section range based on indicator values
-                start_value = await get_start_value(v) or scale_conf[CONF_RANGE_FROM]
-                end_value = await get_end_value(v) or scale_conf[CONF_RANGE_TO]
+                # Use 'is None' instead of 'or' because 0 is a valid value but falsy
+                sv = await get_start_value(v)
+                start_value = sv if sv is not None else scale_conf[CONF_RANGE_FROM]
+                ev = await get_end_value(v)
+                end_value = ev if ev is not None else scale_conf[CONF_RANGE_TO]
 
                 # Create and apply styles based on indicator type
                 if t == CONF_ARC:
                     # Use native scale sections for arc indicators
+                    # Always set arc_opa to COVER so sections are visible even when
+                    # the base scale arc is set to TRANSP (to hide the background arc)
                     props = {
                         "arc_width": v[CONF_WIDTH],
                         "arc_color": v[CONF_COLOR],
+                        "arc_opa": v.get(CONF_OPA, 1.0),
                     }
-                    if (opa := v.get(CONF_OPA)) is not None:
-                        props["arc_opa"] = opa
                     if CONF_R_MOD in v:
                         get_remapped_uses().add(CONF_R_MOD)
                     arc_style = LVStyle(f"meter_arc_{iid.id}", props)
