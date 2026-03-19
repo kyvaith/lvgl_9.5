@@ -18,8 +18,7 @@ from esphome.const import (
     CONF_X,
 )
 from esphome.core import CORE
-from esphome.cpp_generator import MockObj
-from esphome.cpp_types import nullptr
+from esphome.cpp_generator import MockObj, RawStatement
 
 from .. import obj_spec, set_obj_properties
 from ..automation import action_to_code
@@ -46,6 +45,7 @@ from ..defines import (
 )
 from ..helpers import add_lv_use, lvgl_components_required
 from ..lv_validation import (
+    COLOR_NAMES,
     LV_OPA,
     LV_RADIUS,
     get_end_value,
@@ -64,15 +64,13 @@ from ..lv_validation import (
     requires_component,
     size,
 )
-from ..lvcode import LambdaContext, LocalVariable, lv, lv_add, lv_expr, lv_obj
+from ..lvcode import LocalVariable, lv, lv_add, lv_expr, lv_obj
 from ..schemas import STATE_SCHEMA
 from ..styles import LVStyle
 from ..types import (
-    LV_EVENT,
     LvCompound,
     LvType,
     ObjUpdateAction,
-    lv_event_t,
     lv_img_t,
     lv_obj_t,
 )
@@ -452,29 +450,95 @@ class MeterType(WidgetType):
 
                 # Create and apply styles based on indicator type
                 if t == CONF_TICK_STYLE:
-                    # No object created for this
-                    color_start = await lv_color.process(v[CONF_COLOR_START])
-                    color_end = await lv_color.process(v[CONF_COLOR_END])
-                    local = v[CONF_LOCAL]
-                    if color_start and color_end:
-                        async with LambdaContext(
-                            [(lv_event_t.operator("ptr"), "e")]
-                        ) as lambda_:
-                            lv.scale_draw_event_cb(
-                                lambda_.get_parameter(0),
-                                start_value,
-                                end_value,
-                                color_start,
-                                color_end,
-                                local,
-                            )
-                        lv_obj.add_event_cb(
-                            scale_var,
-                            await lambda_.get_lambda(),
-                            LV_EVENT.DRAW_TASK_ADDED,
-                            nullptr,
-                        )
-                        lv.obj_add_flag(scale_var, LV_OBJ_FLAG.SEND_DRAW_TASK_EVENTS)
+                    # Use native LVGL scale sections for tick coloring
+                    # For gradient effect, create multiple sections with
+                    # interpolated colors
+                    color_start_raw = v[CONF_COLOR_START]
+                    color_end_raw = v.get(CONF_COLOR_END)
+                    tick_width = v[CONF_WIDTH]
+
+                    # Get raw Python values for gradient computation
+                    sv_raw = v.get(CONF_START_VALUE, v.get(CONF_VALUE, scale_conf[CONF_RANGE_FROM]))
+                    ev_raw = v.get(CONF_END_VALUE, scale_conf[CONF_RANGE_TO])
+                    sv = int(sv_raw)
+                    ev = int(ev_raw)
+
+                    if color_end_raw is not None:
+                        # Gradient: create stepped sections
+                        num_steps = 10
+                        value_range = ev - sv
+                        step_size = value_range / num_steps
+
+                        # Extract RGB components
+                        if isinstance(color_start_raw, str) and color_start_raw in COLOR_NAMES:
+                            color_start_raw = COLOR_NAMES[color_start_raw]
+                        if isinstance(color_end_raw, str) and color_end_raw in COLOR_NAMES:
+                            color_end_raw = COLOR_NAMES[color_end_raw]
+                        cs = int(color_start_raw)
+                        ce = int(color_end_raw)
+                        r1, g1, b1 = (cs >> 16) & 0xFF, (cs >> 8) & 0xFF, cs & 0xFF
+                        r2, g2, b2 = (ce >> 16) & 0xFF, (ce >> 8) & 0xFF, ce & 0xFF
+
+                        for i in range(num_steps):
+                            ratio = i / max(num_steps - 1, 1)
+                            r = int(r1 + (r2 - r1) * ratio)
+                            g = int(g1 + (g2 - g1) * ratio)
+                            b = int(b1 + (b2 - b1) * ratio)
+
+                            sec_start = int(sv + i * step_size)
+                            sec_end = int(sv + (i + 1) * step_size)
+                            if i == num_steps - 1:
+                                sec_end = ev
+
+                            style_name = f"style_tick_{id(v) & 0xFFFFFF:06x}_{i}"
+                            lv_add(RawStatement(f"static lv_style_t {style_name};"))
+                            lv_add(RawStatement(f"lv_style_init(&{style_name});"))
+                            lv_add(RawStatement(
+                                f"lv_style_set_line_color(&{style_name}, lv_color_make({r}, {g}, {b}));"
+                            ))
+                            lv_add(RawStatement(
+                                f"lv_style_set_line_width(&{style_name}, {tick_width});"
+                            ))
+
+                            # Create section and set range
+                            sec_var = f"sec_tick_{id(v) & 0xFFFFFF:06x}_{i}"
+                            lv_add(RawStatement(
+                                f"lv_scale_section_t *{sec_var} = lv_scale_add_section({scale_var});"
+                            ))
+                            lv_add(RawStatement(
+                                f"lv_scale_section_set_range({sec_var}, {sec_start}, {sec_end});"
+                            ))
+                            lv_add(RawStatement(
+                                f"lv_scale_section_set_style({sec_var}, LV_PART_ITEMS, &{style_name});"
+                            ))
+                            lv_add(RawStatement(
+                                f"lv_scale_section_set_style({sec_var}, LV_PART_INDICATOR, &{style_name});"
+                            ))
+                    else:
+                        # Single color: one section
+                        color = await lv_color.process(color_start_raw)
+                        style_name = f"style_tick_{id(v) & 0xFFFFFF:06x}"
+                        lv_add(RawStatement(f"static lv_style_t {style_name};"))
+                        lv_add(RawStatement(f"lv_style_init(&{style_name});"))
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_color(&{style_name}, {color});"
+                        ))
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_width(&{style_name}, {tick_width});"
+                        ))
+                        sec_var = f"sec_tick_{id(v) & 0xFFFFFF:06x}"
+                        lv_add(RawStatement(
+                            f"lv_scale_section_t *{sec_var} = lv_scale_add_section({scale_var});"
+                        ))
+                        lv_add(RawStatement(
+                            f"lv_scale_section_set_range({sec_var}, {start_value}, {end_value});"
+                        ))
+                        lv_add(RawStatement(
+                            f"lv_scale_section_set_style({sec_var}, LV_PART_ITEMS, &{style_name});"
+                        ))
+                        lv_add(RawStatement(
+                            f"lv_scale_section_set_style({sec_var}, LV_PART_INDICATOR, &{style_name});"
+                        ))
 
                 if t == CONF_ARC:
                     add_lv_use(CONF_ARC)
