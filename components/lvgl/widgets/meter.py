@@ -550,9 +550,25 @@ class MeterType(WidgetType):
                     await set_indicator_values(iw, v)
 
             # Configure ticks AFTER indicators (order matters for LVGL 9.5)
+            has_indicators = bool(scale_conf.get(CONF_INDICATORS))
             if ticks := scale_conf.get(CONF_TICKS):
-                # Set total tick count
-                lv.scale_set_total_tick_count(scale_var, ticks[CONF_COUNT])
+                tick_count = ticks[CONF_COUNT]
+                # LVGL 9.x requires ticks for section arcs to render.
+                # If count is 0 but we have arc indicators, use a reasonable
+                # tick count and make the ticks invisible.
+                if tick_count == 0 and has_indicators:
+                    tick_count = 21  # enough ticks for smooth section arcs
+                    lv.scale_set_total_tick_count(scale_var, tick_count)
+                    # Make ticks invisible
+                    lv_obj.set_style_line_opa(
+                        scale_var, LV_OPA.TRANSP, LV_PART.ITEMS
+                    )
+                    lv_obj.set_style_line_opa(
+                        scale_var, LV_OPA.TRANSP, LV_PART.INDICATOR
+                    )
+                else:
+                    # Set total tick count
+                    lv.scale_set_total_tick_count(scale_var, tick_count)
 
                 # Set tick styling
                 lv_obj.set_style_length(
@@ -616,7 +632,19 @@ class MeterType(WidgetType):
                 else:
                     lv.scale_set_major_tick_every(scale_var, 0)
             else:
-                lv.scale_set_total_tick_count(scale_var, 0)
+                if has_indicators:
+                    # No ticks config but has indicators - need ticks for sections
+                    lv.scale_set_total_tick_count(scale_var, 21)
+                    lv_obj.set_style_line_opa(
+                        scale_var, LV_OPA.TRANSP, LV_PART.ITEMS
+                    )
+                    lv_obj.set_style_line_opa(
+                        scale_var, LV_OPA.TRANSP, LV_PART.INDICATOR
+                    )
+                    # Hide the scale arc line
+                    lv.obj_set_style_arc_opa(scale_var, LV_OPA.TRANSP, LV_PART.MAIN)
+                else:
+                    lv.scale_set_total_tick_count(scale_var, 0)
 
         # Add a pivot
         # Get the default style
