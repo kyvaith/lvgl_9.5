@@ -388,8 +388,9 @@ class MeterType(WidgetType):
 
                 # Create and apply styles based on indicator type
                 if t == CONF_ARC:
-                    # Scale sections use line_* style properties (not arc_*)
-                    # to render the colored arc band on the scale
+                    # For round scales, LV_PART_MAIN uses arc_* properties
+                    # (arc_color, arc_width, arc_opa), NOT line_* properties.
+                    # See LVGL docs: lv_example_scale_4.c
                     if CONF_R_MOD in v:
                         get_remapped_uses().add(CONF_R_MOD)
                     color = await lv_color.process(v[CONF_COLOR])
@@ -399,16 +400,17 @@ class MeterType(WidgetType):
                     lv_add(RawStatement(f"static lv_style_t {style_name};"))
                     lv_add(RawStatement(f"lv_style_init(&{style_name});"))
                     lv_add(RawStatement(
-                        f"lv_style_set_line_color(&{style_name}, {color});"
+                        f"lv_style_set_arc_color(&{style_name}, {color});"
                     ))
                     lv_add(RawStatement(
-                        f"lv_style_set_line_width(&{style_name}, {width});"
+                        f"lv_style_set_arc_width(&{style_name}, {width});"
                     ))
-                    if (opa := v.get(CONF_OPA)) is not None:
-                        opa_val = await opacity.process(opa)
-                        lv_add(RawStatement(
-                            f"lv_style_set_line_opa(&{style_name}, {opa_val});"
-                        ))
+                    # Always set arc_opa to fully opaque so section is visible
+                    # even when base scale has arc_opa=TRANSP
+                    opa_val = await opacity.process(v.get(CONF_OPA, 1.0))
+                    lv_add(RawStatement(
+                        f"lv_style_set_arc_opa(&{style_name}, {opa_val});"
+                    ))
 
                     tvar = cg.Pvariable(iid, lv_expr.scale_add_section(scale_var))
                     lv_add(RawStatement(
