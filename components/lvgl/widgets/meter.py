@@ -388,21 +388,32 @@ class MeterType(WidgetType):
 
                 # Create and apply styles based on indicator type
                 if t == CONF_ARC:
-                    # Use native scale sections for arc indicators
-                    # Always set arc_opa to COVER so sections are visible even when
-                    # the base scale arc is set to TRANSP (to hide the background arc)
-                    props = {
-                        "arc_width": v[CONF_WIDTH],
-                        "arc_color": v[CONF_COLOR],
-                        "arc_opa": v.get(CONF_OPA, 1.0),
-                    }
+                    # Scale sections use line_* style properties (not arc_*)
+                    # to render the colored arc band on the scale
                     if CONF_R_MOD in v:
                         get_remapped_uses().add(CONF_R_MOD)
-                    arc_style = LVStyle(f"meter_arc_{iid.id}", props)
+                    color = await lv_color.process(v[CONF_COLOR])
+                    width = v[CONF_WIDTH]
+
+                    style_name = f"meter_arc_{iid.id}_style"
+                    lv_add(RawStatement(f"static lv_style_t {style_name};"))
+                    lv_add(RawStatement(f"lv_style_init(&{style_name});"))
+                    lv_add(RawStatement(
+                        f"lv_style_set_line_color(&{style_name}, {color});"
+                    ))
+                    lv_add(RawStatement(
+                        f"lv_style_set_line_width(&{style_name}, {width});"
+                    ))
+                    if (opa := v.get(CONF_OPA)) is not None:
+                        opa_val = await opacity.process(opa)
+                        lv_add(RawStatement(
+                            f"lv_style_set_line_opa(&{style_name}, {opa_val});"
+                        ))
+
                     tvar = cg.Pvariable(iid, lv_expr.scale_add_section(scale_var))
-                    lv.scale_section_set_style(
-                        tvar, LV_PART.MAIN, await arc_style.get_var()
-                    )
+                    lv_add(RawStatement(
+                        f"lv_scale_section_set_style({tvar}, LV_PART_MAIN, &{style_name});"
+                    ))
                     lw = Widget(tvar, arc_indicator_type)
                     await set_indicator_values(lw, v)
 
