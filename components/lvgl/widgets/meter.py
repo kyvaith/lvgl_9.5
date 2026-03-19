@@ -178,7 +178,7 @@ INDICATOR_ARC_SCHEMA = (
             cv.Optional(CONF_VALUE): lv_float,
             cv.Optional(CONF_START_VALUE): lv_float,
             cv.Optional(CONF_END_VALUE): lv_float,
-            cv.Optional(CONF_OPA): opacity,
+            cv.Optional(CONF_OPA, default=1.0): opacity,
         }
     )
     .add_extra(cv.has_at_most_one_key(CONF_R_MOD, CONF_PADDING))
