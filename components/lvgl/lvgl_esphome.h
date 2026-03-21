@@ -41,8 +41,6 @@ namespace esphome::lvgl {
 
 #if LV_COLOR_DEPTH == 16
 using lv_color_data = uint16_t;
-#elif LV_COLOR_DEPTH == 24
-using lv_color_data = uint32_t;  // 24-bit RGB888 stored in 32-bit for alignment
 #elif LV_COLOR_DEPTH == 32
 using lv_color_data = uint32_t;
 #endif
@@ -59,7 +57,7 @@ void lv_scale_tick_offset_event_cb(lv_event_t *e, uint16_t offset, uint16_t stri
 #endif  // LV_USE_SCALE
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_565;
-#elif LV_COLOR_DEPTH == 24 || LV_COLOR_DEPTH == 32
+#elif LV_COLOR_DEPTH == 32
 static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_888;
 #else   // LV_COLOR_DEPTH
 static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_332;

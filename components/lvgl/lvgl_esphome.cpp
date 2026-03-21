@@ -590,7 +590,9 @@ void LvglComponent::setup() {
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
-#if LV_COLOR_DEPTH == 24
+#ifdef LVGL_USER_COLOR_DEPTH_24
+  // User selected color_depth: 24 — use RGB888 display format.
+  // LV_COLOR_DEPTH is set to 32 internally for proper alignment.
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB888);
 #elif LV_COLOR_DEPTH == 32
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_ARGB8888);
