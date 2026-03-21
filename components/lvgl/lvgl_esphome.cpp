@@ -590,7 +590,13 @@ void LvglComponent::setup() {
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
+#if LV_COLOR_DEPTH == 24
+  lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB888);
+#elif LV_COLOR_DEPTH == 32
+  lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_ARGB8888);
+#else
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
+#endif
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
   lv_display_set_user_data(this->disp_, this);
   lv_display_set_flush_cb(this->disp_, static_flush_cb);
