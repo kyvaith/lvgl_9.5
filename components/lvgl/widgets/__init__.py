@@ -128,6 +128,7 @@ class WidgetType:
                 f"lvgl.{self.name}.update",
                 ObjUpdateAction,
                 base_update_schema(self, self.parts).extend(self.modify_schema),
+                synchronous=True,
             )(update_to_code)
 
     @property
@@ -537,12 +538,18 @@ async def set_obj_properties(w: Widget, config):
             w.set_style(CONF_PAD_COLUMN, pad_column)
         if layout_type == TYPE_GRID:
             wid = config[CONF_ID]
-            rows = [str(x) for x in layout[CONF_GRID_ROWS]]
+
+            def grid_value_to_str(x):
+                if isinstance(x, float):
+                    return f"lv_pct({int(x * 100)})"
+                return str(x)
+
+            rows = [grid_value_to_str(x) for x in layout[CONF_GRID_ROWS]]
             rows = "{" + ",".join(rows) + ", LV_GRID_TEMPLATE_LAST}"
             row_id = ID(f"{wid}_row_dsc", is_declaration=True, type=lv_coord_t)
             row_array = cg.static_const_array(row_id, cg.RawExpression(rows))
             w.set_style("grid_row_dsc_array", row_array)
-            columns = [str(x) for x in layout[CONF_GRID_COLUMNS]]
+            columns = [grid_value_to_str(x) for x in layout[CONF_GRID_COLUMNS]]
             columns = "{" + ",".join(columns) + ", LV_GRID_TEMPLATE_LAST}"
             column_id = ID(f"{wid}_column_dsc", is_declaration=True, type=lv_coord_t)
             column_array = cg.static_const_array(column_id, cg.RawExpression(columns))

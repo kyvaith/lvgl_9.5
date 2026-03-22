@@ -642,6 +642,7 @@ scale_spec = ScaleType()
             cv.Required(CONF_ID): cv.use_id(LvNumber("lv_scale_t")),
         }
     ),
+    synchronous=True,
 )
 async def scale_update_to_code(config, action_id, template_arg, args):
     """Handle scale update actions."""
@@ -682,6 +683,7 @@ async def scale_update_to_code(config, action_id, template_arg, args):
             cv.Optional(CONF_WIDTH): cv.positive_int,
         }
     ).add_extra(cv.has_at_most_one_key(CONF_START_VALUE, CONF_RANGE_FROM)),
+    synchronous=True,
 )
 async def section_update_to_code(config, action_id, template_arg, args):
     """Handle scale section update actions."""
@@ -741,6 +743,7 @@ NEEDLE_UPDATE_SCHEMA = cv.Schema(
     "lvgl.scale.needle.update",
     ObjUpdateAction,
     NEEDLE_UPDATE_SCHEMA,
+    synchronous=True,
 )
 async def needle_update_to_code(config, action_id, template_arg, args):
     """Handle scale needle update actions.

@@ -238,6 +238,7 @@ lottie_spec = LottieType()
         },
         key=CONF_ID,
     ),
+    synchronous=True,
 )
 async def lottie_start(config, action_id, template_arg, args):
     """Start or resume the Lottie animation."""
@@ -258,6 +259,7 @@ async def lottie_start(config, action_id, template_arg, args):
         },
         key=CONF_ID,
     ),
+    synchronous=True,
 )
 async def lottie_stop(config, action_id, template_arg, args):
     """Stop the Lottie animation and reset to beginning."""
@@ -278,6 +280,7 @@ async def lottie_stop(config, action_id, template_arg, args):
         },
         key=CONF_ID,
     ),
+    synchronous=True,
 )
 async def lottie_pause(config, action_id, template_arg, args):
     """Pause the Lottie animation at current frame."""

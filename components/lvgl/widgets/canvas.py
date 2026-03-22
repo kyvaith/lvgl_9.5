@@ -145,6 +145,7 @@ _canvas_layers = {}
             cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
         },
     ),
+    synchronous=True,
 )
 async def canvas_begin_draw(config, action_id, template_arg, args):
     """Begin a batch of drawing operations. Call end_draw when finished."""
@@ -169,6 +170,7 @@ async def canvas_begin_draw(config, action_id, template_arg, args):
             cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
         },
     ),
+    synchronous=True,
 )
 async def canvas_end_draw(config, action_id, template_arg, args):
     """End a batch of drawing operations and render to screen."""
@@ -192,6 +194,7 @@ async def canvas_end_draw(config, action_id, template_arg, args):
             cv.Optional(CONF_OPA, default="COVER"): opacity,
         },
     ),
+    synchronous=True,
 )
 async def canvas_fill(config, action_id, template_arg, args):
     widget = await get_widgets(config)
@@ -212,6 +215,7 @@ async def canvas_fill(config, action_id, template_arg, args):
             cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
         },
     ),
+    synchronous=True,
 )
 async def canvas_invalidate(config, action_id, template_arg, args):
     """Force canvas refresh without using layer system."""
@@ -235,6 +239,7 @@ async def canvas_invalidate(config, action_id, template_arg, args):
             cv.Required(CONF_Y): pixels,
         },
     ),
+    synchronous=True,
 )
 async def canvas_copy_buf(config, action_id, template_arg, args):
     """Copy an image buffer to the canvas at specified position."""
@@ -267,6 +272,7 @@ async def canvas_copy_buf(config, action_id, template_arg, args):
             cv.Required(CONF_POINTS): cv.ensure_list(point_schema),
         },
     ),
+    synchronous=True,
 )
 async def canvas_set_pixel(config, action_id, template_arg, args):
     widget = await get_widgets(config)
@@ -305,6 +311,7 @@ CONF_PALETTE_COLOR = "palette_color"
             cv.Required(CONF_COLOR): lv_color,
         },
     ),
+    synchronous=True,
 )
 async def canvas_set_palette(config, action_id, template_arg, args):
     """Set palette color for indexed color formats (I1, I2, I4, I8)."""
@@ -326,6 +333,7 @@ async def canvas_set_palette(config, action_id, template_arg, args):
             cv.GenerateID(CONF_ID): cv.use_id(lv_canvas_t),
         },
     ),
+    synchronous=True,
 )
 async def canvas_get_image(config, action_id, template_arg, args):
     """Get the canvas as an image descriptor (for use with other widgets)."""
@@ -430,6 +438,7 @@ def _draw_line(layer, dsc, points):
             **{cv.Optional(prop): STYLE_PROPS[prop] for prop in RECT_PROPS},
         }
     ),
+    synchronous=True,
 )
 async def canvas_draw_rect(config, action_id, template_arg, args):
     width = await pixels.process(config[CONF_WIDTH])
@@ -475,6 +484,7 @@ TEXT_PROPS = {
             **{cv.Optional(prop): STYLE_PROPS[f"text_{prop}"] for prop in TEXT_PROPS},
         },
     ),
+    synchronous=True,
 )
 async def canvas_draw_text(config, action_id, template_arg, args):
     text = await lv_text.process(config[CONF_TEXT])
@@ -543,6 +553,7 @@ def _prop_validator(prop):
             **{cv.Optional(prop): _prop_validator(prop) for prop in IMG_PROPS},
         }
     ).add_extra(_scale_map),
+    synchronous=True,
 )
 async def canvas_draw_image(config, action_id, template_arg, args):
     src = await lv_image.process(config[CONF_SRC])
@@ -596,6 +607,7 @@ LINE_PROPS = {
             **{cv.Optional(prop): validator for prop, validator in LINE_PROPS.items()},
         }
     ),
+    synchronous=True,
 )
 async def canvas_draw_line(config, action_id, template_arg, args):
     points = [
@@ -621,6 +633,7 @@ async def canvas_draw_line(config, action_id, template_arg, args):
             **{cv.Optional(prop): STYLE_PROPS[prop] for prop in RECT_PROPS},
         },
     ),
+    synchronous=True,
 )
 async def canvas_draw_polygon(config, action_id, template_arg, args):
     points = [
@@ -666,6 +679,7 @@ ARC_PROPS = {
             **{cv.Optional(prop): validator for prop, validator in ARC_PROPS.items()},
         }
     ),
+    synchronous=True,
 )
 async def canvas_draw_arc(config, action_id, template_arg, args):
     radius = await size.process(config[CONF_RADIUS])

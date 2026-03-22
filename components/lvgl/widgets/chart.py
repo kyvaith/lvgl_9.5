@@ -321,6 +321,7 @@ CHART_SET_NEXT_VALUE_SCHEMA = cv.Schema(
     "lvgl.chart.set_next_value",
     ObjUpdateAction,
     CHART_SET_NEXT_VALUE_SCHEMA,
+    synchronous=True,
 )
 async def chart_set_next_value(config, action_id, template_arg, args):
     """Add a data point to a chart series using SHIFT or CIRCULAR mode"""
@@ -348,6 +349,7 @@ async def chart_set_next_value(config, action_id, template_arg, args):
         },
         key=CONF_ID,
     ),
+    synchronous=True,
 )
 async def chart_refresh(config, action_id, template_arg, args):
     """Refresh the chart to update display after data changes"""
@@ -374,6 +376,7 @@ CHART_SET_VALUE_BY_ID_SCHEMA = cv.Schema(
     "lvgl.chart.set_value_by_id",
     ObjUpdateAction,
     CHART_SET_VALUE_BY_ID_SCHEMA,
+    synchronous=True,
 )
 async def chart_set_value_by_id(config, action_id, template_arg, args):
     """Set a specific point value by index (useful for animations)"""
@@ -417,6 +420,7 @@ CHART_SET_VALUE_BY_ID2_SCHEMA = cv.Schema(
     "lvgl.chart.set_value_by_id2",
     ObjUpdateAction,
     CHART_SET_VALUE_BY_ID2_SCHEMA,
+    synchronous=True,
 )
 async def chart_set_value_by_id2(config, action_id, template_arg, args):
     """Set X and Y values for scatter chart point by index.
@@ -473,6 +477,7 @@ CHART_SET_SERIES_COLOR_SCHEMA = cv.Schema(
     "lvgl.chart.set_series_color",
     ObjUpdateAction,
     CHART_SET_SERIES_COLOR_SCHEMA,
+    synchronous=True,
 )
 async def chart_set_series_color(config, action_id, template_arg, args):
     """Change the color of a chart series dynamically"""
@@ -502,6 +507,7 @@ CHART_SET_CURSOR_POINT_SCHEMA = cv.Schema(
     "lvgl.chart.set_cursor_point",
     ObjUpdateAction,
     CHART_SET_CURSOR_POINT_SCHEMA,
+    synchronous=True,
 )
 async def chart_set_cursor_point(config, action_id, template_arg, args):
     """Move a cursor to a specific point on a series"""

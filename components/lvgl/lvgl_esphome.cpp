@@ -676,24 +676,39 @@ void LvglComponent::static_flush_cb(lv_display_t *disp_drv, const lv_area_t *are
 }
 
 #if LV_USE_SCALE
-void lv_scale_draw_event_cb(lv_event_t *e, uint16_t range_start, uint16_t range_end, lv_color_t color_start,
+void lv_scale_draw_event_cb(lv_event_t *e, int32_t range_start, int32_t range_end, lv_color_t color_start,
                             lv_color_t color_end, bool local) {
   auto *scale = static_cast<lv_obj_t *>(lv_event_get_target(e));
   lv_draw_task_t *task = lv_event_get_draw_task(e);
 
   if (lv_draw_task_get_type(task) == LV_DRAW_TASK_TYPE_LINE) {
     auto *line_dsc = static_cast<lv_draw_line_dsc_t *>(lv_draw_task_get_draw_dsc(task));
-    auto tick = line_dsc->base.id1;
-    if (tick >= range_start && tick <= range_end) {
-      unsigned range = range_end - range_start;
+    auto tick_idx = line_dsc->base.id1;
+
+    // Convert tick index to scale value
+    auto total_ticks = lv_scale_get_total_tick_count(scale);
+    auto scale_min = lv_scale_get_range_min_value(scale);
+    auto scale_max = lv_scale_get_range_max_value(scale);
+    int32_t tick_value;
+    if (total_ticks > 1) {
+      tick_value = scale_min + (int32_t) tick_idx * (scale_max - scale_min) / (total_ticks - 1);
+    } else {
+      tick_value = scale_min;
+    }
+
+    if (tick_value >= range_start && tick_value <= range_end) {
+      int32_t range;
+      int32_t pos;
       if (local) {
-        tick -= range_start;
+        range = range_end - range_start;
+        pos = tick_value - range_start;
       } else {
-        range = lv_scale_get_total_tick_count(scale) - 1;
+        range = scale_max - scale_min;
+        pos = tick_value - scale_min;
       }
       if (range == 0)
         range = 1;
-      auto ratio = (tick * 255) / range;
+      auto ratio = (pos * 255) / range;
       line_dsc->color = lv_color_mix(color_end, color_start, ratio);
     }
   }

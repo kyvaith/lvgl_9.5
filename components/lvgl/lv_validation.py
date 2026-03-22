@@ -374,18 +374,29 @@ lv_images_used = set()
 
 
 def image_validator(value):
-    # Accept multiple types:
-    # 1. SdImageComponent ID - image from storage/sd_image component (e.g., "peaceful")
+    # Accept multiple image source types:
+    # 1. Image_ ID - standard ESPHome image (image: component)
+    #    Also matches SdImageComponent since it inherits from Image_
     # 2. SvgFile ID - embedded SVG from svg_file: component
-    # 3. Image ID - embedded image from image: component
-    # 4. String path - file on SD card (e.g., "/sdcard/icons/wifi.svg")
+    # 3. String path - file on filesystem (e.g., "/sdcard/icons/wifi.svg")
     #
-    # IMPORTANT: Try IDs first before treating as file path!
-    # IDs are also strings in YAML, so we must distinguish them.
+    # Order matters: try Image_ first (base class) so both regular images
+    # and SdImageComponent (which inherits from Image_) are accepted.
 
-    # Try sd_image ID first (from storage component) - most common use case
+    # Try Image_ first - covers both standard images AND SdImageComponent
     try:
-        sd_image_class = cg.esphome_ns.namespace("storage").class_("SdImageComponent")
+        value_id = cv.use_id(Image_)(value)
+        lv_images_used.add(value_id)
+        add_lv_use("img", "label")
+        return value_id
+    except cv.Invalid:
+        pass
+
+    # Try SdImageComponent explicitly (in case Image_ check fails)
+    try:
+        sd_image_class = cg.esphome_ns.namespace("storage").class_(
+            "SdImageComponent"
+        )
         result = cv.use_id(sd_image_class)(value)
         add_lv_use("img", "label")
         return result
@@ -401,36 +412,24 @@ def image_validator(value):
     except cv.Invalid:
         pass
 
-    # Try regular embedded image ID
-    try:
-        value_id = requires_component("image")(value)
-        value_id = cv.use_id(Image_)(value_id)
-        lv_images_used.add(value_id)
-        add_lv_use("img", "label")
-        return value_id
-    except cv.Invalid:
-        pass
-
     # If all ID resolutions failed and it's a string starting with "/", treat as file path
     if isinstance(value, str) and value.startswith("/"):
-        # It's a file path (e.g., "/sdcard/icons/wifi.svg")
         add_lv_use("img", "label")
         return value
 
-    # If we get here, it's an invalid value
-    raise cv.Invalid(f"Invalid image source: {value}. Must be an image/sd_image/svg_file ID or a file path starting with '/'")
-
+    raise cv.Invalid(
+        f"Invalid image source: {value}. "
+        f"Must be an image/sd_image/svg_file ID or a file path starting with '/'"
+    )
 
 
 lv_image = LValidator(
     image_validator,
     image.Image_.operator("ptr"),
-    requires="image",
 )
 lv_image_list = LValidator(
     cv.ensure_list(image_validator),
     cg.std_vector.template(image.Image_.operator("ptr")),
-    requires="image",
 )
 lv_bool = LValidator(cv.boolean, cg.bool_, retmapper=literal)
 

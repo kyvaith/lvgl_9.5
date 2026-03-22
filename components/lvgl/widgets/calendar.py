@@ -192,6 +192,7 @@ calendar_spec = CalendarType()
             cv.Optional(CONF_HIGHLIGHTED_DATES): cv.ensure_list(date_schema(required=True)),
         }
     ),
+    synchronous=True,
 )
 async def calendar_update_to_code(config, action_id, template_arg, args):
     """Handle calendar update action"""
