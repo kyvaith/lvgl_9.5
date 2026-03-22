@@ -3401,7 +3401,7 @@ void LvglComponent::static_flush_cb(lv_display_t *disp_drv, const lv_area_t *are
 
 #if LV_USE_SCALE
 void lv_scale_draw_event_cb(lv_event_t *e, int32_t range_start, int32_t range_end, lv_color_t color_start,
-                            lv_color_t color_end, bool local) {
+                            lv_color_t color_end, int width, bool local) {
   auto *scale = static_cast<lv_obj_t *>(lv_event_get_target(e));
   lv_draw_task_t *task = lv_event_get_draw_task(e);
 
@@ -3434,6 +3434,7 @@ void lv_scale_draw_event_cb(lv_event_t *e, int32_t range_start, int32_t range_en
         range = 1;
       auto ratio = (pos * 255) / range;
       line_dsc->color = lv_color_mix(color_end, color_start, ratio);
+      line_dsc->width += width;
     }
   }
 }
