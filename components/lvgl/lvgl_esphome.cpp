@@ -914,7 +914,11 @@ void LvglComponent::show_page(size_t index, lv_scr_load_anim_t anim, uint32_t ti
   if (index >= this->pages_.size())
     return;
   this->current_page_ = index;
-  lv_scr_load_anim(this->pages_[this->current_page_]->obj, anim, time, 0, false);
+  if (anim == LV_SCREEN_LOAD_ANIM_NONE) {
+    lv_scr_load(this->pages_[this->current_page_]->obj);
+  } else {
+    lv_scr_load_anim(this->pages_[this->current_page_]->obj, anim, time, 0, false);
+  }
 }
 
 void LvglComponent::show_next_page(lv_scr_load_anim_t anim, uint32_t time) {
@@ -2424,7 +2428,7 @@ void LvglComponent::setup() {
   // Rotation will be handled by our drawing function, so reset the display rotation.
   for (auto *disp : this->displays_)
     disp->set_rotation(display::DISPLAY_ROTATION_0_DEGREES);
-  this->show_page(0, LV_SCR_LOAD_ANIM_NONE, 0);
+  this->show_page(0, LV_SCREEN_LOAD_ANIM_NONE, 0);
   lv_display_trigger_activity(this->disp_);
 
 #ifdef USE_ESP32
