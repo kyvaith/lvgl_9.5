@@ -10,6 +10,7 @@ from esphome.components.const import (
     CONF_DRAW_ROUNDING,
 )
 from esphome.components.display import Display
+from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.components.esp32.const import KEY_ESP32, KEY_SDKCONFIG_OPTIONS
 from esphome.components.psram import DOMAIN as PSRAM_DOMAIN
 import esphome.config_validation as cv
@@ -254,6 +255,11 @@ def final_validation(config_list):
 async def to_code(configs):
     config_0 = configs[0]
     # Global configuration
+    if CORE.is_esp32:
+        # Skip compiling LVGL examples and demos; ESPHome builds provide their
+        # own UI tree and these sources only add compile time/flash pressure.
+        add_idf_sdkconfig_option("CONFIG_LV_BUILD_EXAMPLES", False)
+        add_idf_sdkconfig_option("CONFIG_LV_BUILD_DEMOS", False)
     cg.add_library("lvgl/lvgl", "9.5.0")
     cg.add_define("USE_LVGL")
 
@@ -665,7 +671,10 @@ async def to_code(configs):
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")
-    cg.add_build_flag(f'-DLV_CONF_PATH=\\"{LV_CONF_FILENAME}\\"')
+    # Handle Windows paths in a way that doesn't break the generated C++.
+    lv_conf_h_path = Path(lv_conf_h_file).as_posix()
+    cg.add_build_flag(f'-DLV_CONF_PATH=\\"{lv_conf_h_path}\\"')
+    cg.add_build_flag("-DLV_KCONFIG_IGNORE")
     # Add include path for atomic.h shim (needed for LV_USE_OS=LV_OS_FREERTOS on ESP-IDF)
     # Use absolute path so it works when LVGL compiles from .piolibdeps/
     component_dir = Path(__file__).parent
