@@ -73,7 +73,7 @@ async def generate_triggers():
                 dir = DIRECTIONS.mapper(dir)
                 w.clear_flag("LV_OBJ_FLAG_SCROLLABLE")
                 selected = literal(
-                    f"lv_indev_get_gesture_dir(lv_indev_get_act()) == {dir}"
+                    f"lv_indev_get_gesture_dir(lv_indev_active()) == {dir}"
                 )
                 await add_trigger(
                     conf,

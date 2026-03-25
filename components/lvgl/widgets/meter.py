@@ -71,7 +71,7 @@ from ..types import (
     LvCompound,
     LvType,
     ObjUpdateAction,
-    lv_img_t,
+    lv_image_t,
     lv_obj_t,
 )
 from . import Widget, WidgetType, get_widgets, widget_to_code
@@ -207,7 +207,7 @@ INDICATOR_SCHEMA = cv.Schema(
             INDICATOR_IMG_SCHEMA.extend(
                 {
                     cv.GenerateID(): cv.declare_id(lv_meter_indicator_image_t),
-                    cv.GenerateID(CONF_IMAGE_ID): cv.declare_id(lv_img_t),
+                    cv.GenerateID(CONF_IMAGE_ID): cv.declare_id(lv_image_t),
                 }
             ),
             requires_component("image"),
