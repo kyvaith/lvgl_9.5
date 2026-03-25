@@ -3407,18 +3407,9 @@ void lv_scale_draw_event_cb(lv_event_t *e, int32_t range_start, int32_t range_en
 
   if (lv_draw_task_get_type(task) == LV_DRAW_TASK_TYPE_LINE) {
     auto *line_dsc = static_cast<lv_draw_line_dsc_t *>(lv_draw_task_get_draw_dsc(task));
-    auto tick_idx = line_dsc->base.id1;
-
-    // Convert tick index to scale value
-    auto total_ticks = lv_scale_get_total_tick_count(scale);
+    int32_t tick_value = line_dsc->base.id2;
     auto scale_min = lv_scale_get_range_min_value(scale);
     auto scale_max = lv_scale_get_range_max_value(scale);
-    int32_t tick_value;
-    if (total_ticks > 1) {
-      tick_value = scale_min + (int32_t) tick_idx * (scale_max - scale_min) / (total_ticks - 1);
-    } else {
-      tick_value = scale_min;
-    }
 
     if (tick_value >= range_start && tick_value <= range_end) {
       int32_t range;
