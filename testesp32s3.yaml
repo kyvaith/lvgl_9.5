@@ -1,0 +1,1172 @@
+substitutions:
+  name: testesp32s3
+  friendly_name: testesp32s3
+  
+  home_assistant_host: http://homeassistant.local:8123
+
+
+  allowed_characters: " !#%'()+,-./0123456789:;<>?@ABCDEFGHIJKLMNOPQRSTUVWYZ[]_abcdefghijklmnopqrstuvwxyz{|}°²³µ¿ÁÂÄÅÉÖÚßàáâãäåæçèéêëìíîðñòóôõöøùúûüýþāăąćčďĐđēėęěğĮįıļľŁłńňőřśšťũūůűųźŻżŽžơưșțΆΈΌΐΑΒΓΔΕΖΗΘΚΜΝΠΡΣΤΥΦάέήίαβγδεζηθικλμνξοπρςστυφχψωϊόύώАБВГДЕЖЗИКЛМНОПРСТУХЦЧШЪЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёђєіїјљњћאבגדהוזחטיכלםמןנסעפץצקרשת،ءآأإئابةتجحخدذرزسشصضطظعغفقكلمنهوىيٹپچڈکگںھہیےংকচতধনফবযরলশষস়ািু্చయలిెొ్ംഅആഇഈഉഎഓകഗങചജഞടഡണതദധനപഫബഭമയരറലളവശസഹാിീുൂെേൈ്ൺൻർൽൾაბგდევზთილმნოპრსტუფქყშჩცძჭხạảấầẩậắặẹẽếềểệỉịọỏốồổỗộớờởợụủứừửữựỳ—、一上不个中为主乾了些亮人任低佔何作供依侧係個側偵充光入全关冇冷几切到制前動區卧厅厨及口另右吊后吗启吸呀咗哪唔問啟嗎嘅嘛器圍在场執場外多大始安定客室家密寵对將小少左已帘常幫幾库度庫廊廚廳开式後恆感態成我戲戶户房所扇手打执把拔换掉控插摄整斯新明是景暗更最會有未本模機檯櫃欄次正氏水沒没洗活派温測源溫漏潮激濕灯為無煙照熱燈燥物狀玄现現瓦用發的盞目着睡私空窗立笛管節簾籬紅線红罐置聚聲脚腦腳臥色节著行衣解設調請謝警设调走路車车运連遊運過道邊部都量鎖锁門閂閉開關门闭除隱離電震霧面音頂題顏颜風风食餅餵가간감갔강개거게겨결경고공과관그금급기길깥꺼껐꼽나난내네놀누는능니다닫담대더데도동됐되된됨둡드든등디때떤뜨라래러렇렌려로료른를리림링마많명몇모무문물뭐바밝방배변보부불블빨뽑사산상색서설성세센션소쇼수스습시신실싱아안않알았애야어얼업없었에여연열옆오온완외왼요운움워원위으은을음의이인일임입있작잠장재전절정제져조족종주줄중줘지직진짐쪽차창천최추출충치침커컴켜켰쿠크키탁탄태탬터텔통트튼티파팬퍼폰표퓨플핑한함해했행혀현화활후휴힘，？"
+  font_glyphsets: "GF_Latin_Core"
+  font_family: Figtree
+
+  timer_duration: "5"
+
+  settings:           "\U0000e900" # settings
+  thermostat:         "\U0000e901" # thermostat
+  lock:               "\U0000e902" # security, alarm
+  camera:             "\U0000e903" # camera
+  curtains:           "\U0000e904" # curtains
+  lights:             "\U0000e905" # lights
+  air_conditioner:    "\U0000e906" # air_conditioner
+  motion:             "\U0000e907" # motion, presence
+  heating:            "\U0000e908" # heating
+  alarm_off:          "\U0000e909" # alarm off
+  alarm_on:           "\U0000e90a" # alarm on
+  ha:                 "\U0000e90b" # home assistant
+  color_temp:         "\U0000e90c" # color_temp
+  ventilation:        "\U0000e90d" # ventilation
+  wifi_25:            "\U0000e91e" # wifi signal from 25% to 1%
+  wifi_50:            "\U0000e91f" # wifi signal from 50% to 25%
+  wifi_75:            "\U0000e910" # wifi signal from 75% to 50%
+  wifi_100:           "\U0000e911" # wifi signal from 100% to 75% or disable
+  humidity:           "\U0000e912" # humidity
+  co2:                "\U0000e913" # co2
+  tvoc:               "\U0000e914" # air quality
+  temperature:        "\U0000e915" # temperature
+  illumination:       "\U0000e916" # lux
+  empty:              "\U0000e917" # placeholder
+  vacuum_cleaner:     "\U0000e918" # vacuum cleaner
+  logo:               "\U0000e919" # logo
+  alarm_home:         "\U000F068A" # alarm home
+  alarm_away:         "\U000F0BC4" # alarm away
+  alarm_nigt:         "\U000F1828" # armed night
+  disarmed:           "\U000F099E" # disarmed
+  arming:             "\U000F0565" # arming
+  home:               "\U000F1A12" # home 
+  tv:                 "\U000F07F4" # tv 
+  sound:              "\U000F07C5" # sound
+  Battery:            "\U000F0091" # battery
+  music:              "\U000F0384" # music
+  tools:              "\U000F1322" #tools
+  cctv:               "\U000F07AE" #cctv        
+  cog:                "\U000F0493" #settings cog  
+  voice:              "\U000F05CB" #voice
+  screen:             "\U000F0502" #screen settings
+  info:               "\U000F1C6F" #info
+  scr:                "\U000F0521" #toggle on
+  screen_off:         "\U000F0D90" #screen off
+  bell:               "\U000F009E" #bell
+  stop:               "\U000F04DB" #stop
+  sleep:              "\U000F04B2" #sleep
+  s_saver:            "\U000F1110" #s_saver
+  light_mut:          "\U000F18DD" #light_mut
+  alarm_bell:         "\U000F009E" #alarm bell
+  clock:              "\U000F0150" #clock
+  source:             "\U000F062C" #source
+  kubernetes:         "\U000F10FE" #kubernetes
+  github:             "\U000F02A4" #github
+  angular:            "\U000F06B2" #angular
+  radio:              "\U000F0439" #radio
+  next:               "\U000F0BB1" #next
+  lightbulb:          "\U000F0335"
+  aircon:             "\U000F0D43"
+  ledstrip:           "\U000F1051"
+  package:            "\U000F03D7"
+  lumiere:            "\U000F07D6"
+  blind:              "\U000F00AC"
+  nightlight:         "\U000F1A4C"
+  network:            "\U000F1087"
+  videocall:          "\U000F036B"
+  application:        "\U000F0614"
+  gmail:              "\U000F02AB"
+  slack:              "\U000F04B1"
+  stairs:             "\U000F04CD"
+  entry:              "\U000F0E56"
+  bedroom:            "\U000F106E"
+  radio_active:       "\U000F043C" #radio_active
+  music_play:         "\U000F0CB8" #music_play
+  heure:              "\U000F1A13" #heure
+  meteo:              "\U000F0F30" #meteo
+  timer:              "\U000F1923" #timer
+  select:             "\U000F04AE" #select
+  previous:           "\U000F0664"
+  play:               "\U000F03E4"
+  pause:              "\U000F03E3"
+  refresh:            "\U000F0453"
+  play_pause:         "\U000F040E"
+  next_track:         "\U000F0662"
+  micro_sd:           "\U000F07DC"
+  timer_off:          "\U000F13AC"
+  timer_play:         "\U000F1AE1"
+
+esphome:
+  name: display
+  min_version: 2025.2.0
+  friendly_name: display
+  platformio_options:
+    board_build.flash_mode: dio
+
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y" 
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y" 
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "3NtnARhB2X31kMYeAEC25xJXxmqO3gm+qf/zsyNsuiM="
+
+ota:
+  - platform: esphome
+    password: "e03945656c724c8611954d4932c9dfa4"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Testesp32S3 Fallback Hotspot"
+    password: "zex6SePSvE9m"
+
+captive_portal:
+    
+psram:
+  mode: octal
+  speed: 80MHz
+
+
+
+external_components:
+
+  - source: github://pr#12312
+    components: [font]
+    refresh: 1h    
+    
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref:  claude/fix-lvgl-esp32s3-Llg2P #claude/fix-lvgl-image-buttonmatrix-wOKzS
+    components: [lvgl, image]
+    refresh: always
+
+output:
+  - platform: ledc
+    pin: GPIO47
+    id: backlight_output
+
+
+light:
+  - platform: monochromatic
+    id: led
+    name: LCD Backlight
+    entity_category: config
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+
+i2c:
+  - id: bus_a
+    sda: GPIO08
+    scl: GPIO18
+    scan: false
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+    frequency: 100kHz
+
+  - id: bus_b
+    sda: GPIO41
+    scl: GPIO40
+    scan: false
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+    frequency: 100kHz
+
+touchscreen:
+  platform: gt911
+  i2c_id: bus_a
+  id: gt911_touchscreen
+  update_interval: 50ms 
+  #reset_pin:
+    #number: GPIO3
+    #inverted: true
+    #ignore_strapping_warning: true
+  #update_interval: 50ms
+  on_touch:
+    - lambda: id(led).turn_on().set_brightness(1.0).perform();
+
+
+binary_sensor:
+  - platform: gpio
+    id: top_left_button
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+      ignore_strapping_warning: true
+
+  - platform: gpio
+    pin:
+      number: GPIO21
+    name: "Presence detect"
+    disabled_by_default: false
+    device_class: "occupancy" 
+
+  - platform: gt911
+    id: home_button
+    index: 0         
+
+spi:
+  clk_pin: 7
+  mosi_pin: 6
+
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: S3BOX
+    data_rate: 40MHz
+    cs_pin: 5
+    dc_pin: 4
+    reset_pin:
+      number: 48
+      inverted: true
+    update_interval: never
+    invert_colors: false 
+
+color:
+  - id: color_sky_blue
+    hex: 3FA7F3
+  - id: color_slate_blue_gray
+    hex: 343645
+  - id: color_steel_blue
+    hex: 606682
+  - id: color_misty_blue
+    hex: 9BA2BC
+  - id: color_black
+    hex: 0d0d0d
+  - id: color_dark_gray
+    hex: 333333
+  - id: color_gray
+    hex: 666666
+  - id: color_white
+    hex: f2f0eb
+  - id: color_red
+    hex: ff0000
+  - id: color_crimson
+    hex: f5075c
+  - id: color_blue
+    hex: 2fc0ff
+  - id: color_yellow
+    hex: e7c12c
+  - id: color_amber
+    hex: f4a900
+  - id: color_mint
+    hex: 39d19c
+  - id: color_green
+    hex: 00ff00
+  - id: color_orange
+    hex: f07c40
+  - id: color_deep_orange
+    hex: ff6600
+  - id: color_violet
+    hex: 926BC7
+  - id: color_dark_blue
+    hex: 4867aa
+  - id: color_deep_purple
+    hex: 543D72  
+
+
+  - id: color_nova
+    hex: 93A4EC
+
+  - id: color_navy
+    hex: aad6ec
+
+  - id: color_cyan
+    hex: 00FFFF  
+  - id: color_magenta
+    hex: FF00FF  
+
+  - id: color_aqua
+    hex: "00ffff"          
+
+  # Nova Colors
+  - id: nova_color # pink
+    hex: "e38de3"
+  - id: pri_color # light (mantle)
+    hex: "24273a"
+  - id: sec_color # dark (crust)
+    hex: "181926"
+  - id: text_color
+    hex: "cad3f5"
+  - id: off_color
+    hex: "5b6078"
+
+
+  - id: blue_color
+    hex: "6b93e3"
+  - id: green_color
+    hex: "a6da95"
+  - id: yellow_color
+    hex: "ffd17a"
+  - id: orange_color
+    hex: "e0752b"
+  - id: red_color
+    hex: "de455c"  
+
+  - id: lcars_space_white
+    hex: "f5f6fa"
+  - id: lcars_violet_creme
+    hex: "ddbbff"
+  - id: lcars_green
+    hex: "33cc99"
+  - id: lcars_magenta
+    hex: "cc4499"
+  - id: lcars_blue
+    hex: "4455ff"
+  - id: lcars_yellow
+    hex: "ffcc33"
+  - id: lcars_violet
+    hex: "9944ff"
+  - id: lcars_orange
+    hex: "ff7700"
+  - id: lcars_african_violet
+    hex: "cc88ff"
+  - id: lcars_text_purple
+    hex: "cc77ff"
+  - id: lcars_red
+    hex: "dd4444"
+  - id: lcars_emerald
+    hex: "00bb00"
+  - id: lcars_crimson
+    hex: "cc0000"
+  - id: lcars_navy_gray
+    hex: "2C374B"
+  - id: lcars_slate_gray
+    hex: "6E748C"
+  - id: lcars_teal
+    hex: "2A7092"
+  - id: lcars_coral
+    hex: "FA6851"
+  - id: lcars_charcoal
+    hex: "51596C"
+
+  - id: color_primary
+    hex: '4A90E2'
+  - id: color_secondary
+    hex: '2ECC71'
+  - id: color_text
+    hex: 'FFFFFF'
+  - id: color_background
+    hex: '1A1A1A'
+  - id: color_inactive
+    hex: '666666'   
+
+
+image:
+
+  defaults:
+    byte_order: little_endian
+    transparency: alpha_channel
+    type: rgb565
+  images:
+
+
+font:
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+      italic: true
+    id: font_request
+    size: 15
+    glyphsets:
+      - ${font_glyphsets}
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: font_response
+    size: 15
+    glyphsets:
+      - ${font_glyphsets}
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_16
+    size: 16
+    glyphsets:
+      - ${font_glyphsets}
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_18
+    size: 18
+    glyphsets:
+      - ${font_glyphsets}   
+
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_20
+    size: 20
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_23
+    size: 23
+    glyphsets:
+      - ${font_glyphsets}  
+
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_26
+    size: 26
+    glyphsets:
+      - ${font_glyphsets}   
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_28
+    size: 28
+    glyphsets:
+      - ${font_glyphsets}  
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_32
+    size: 32
+    glyphsets:
+      - ${font_glyphsets}                      
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_24
+    size: 24
+    glyphsets:
+      - ${font_glyphsets}           
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_36
+    size: 36
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_42
+    size: 42
+    glyphsets:
+      - ${font_glyphsets}                   
+
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: nunito_60
+    size: 60
+    glyphsets:
+      - ${font_glyphsets}      
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: font_timer
+    size: 30
+    glyphsets:
+      - ${font_glyphsets} 
+
+  - file: "https://github.com/BigBobbas/ESP32-S3-Box3-Custom-ESPHome/raw/main/fonts/materialdesignicons-webfont.ttf"
+    id: mdi46
+    size: 46
+    bpp: 4
+    glyphs: [
+      "\U000F0BC4",#alarm away
+      "\U000F0384",#music
+      "\U000F07C5",#sound
+      "\U000F1322",#tools
+      "\U000F07AE",#cctv
+      "\U000F0493",#settings cog
+      "\U000F05CB",#voice
+      "\U000F0502",#screen settings
+      "\U000F1C6F",#info
+      "\U000F0521",#scr 
+      "\U000F04B2",#sleep
+      "\U000F1110",#s_saver
+      "\U000F0D90",#screen off
+      "\U000F009E",#bell
+      "\U000F04DB",#stop
+      "\U000F18DD",#light_mut
+      "\U000F062C",#source
+      "\U000F10FE",#kubernetes
+      "\U000F02A4",#github
+      "\U000F06B2",#angular
+      "\U000F0439",#radio
+      "\U000F0BB1",#next
+      "\U000F036B",#videocall
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0CB8",#music_play
+      "\U000F08D6",#settings
+      "\U000F0565",#arming
+      "\U000F050F",#temp sensor
+      "\U000F0150",#clock
+      "\U000F081A",#door
+      "\U000F06D9",#garage
+      "\U000F1A8B",#shutter
+      "\U000F02E9",#Gallery
+      "\U000F0C7B",#recognition
+      "\U000F057C",#vlc
+      "\U000F05C3",#youtube
+      "\U000F18DE",#light
+      "\U000F0675",#application
+      
+      ]
+
+  - file: "https://github.com/BigBobbas/ESP32-S3-Box3-Custom-ESPHome/raw/main/fonts/materialdesignicons-webfont.ttf"
+    id: mdi36
+    size: 36
+    bpp: 4
+    glyphs: [
+      "\U000F0BC4",#alarm away
+      "\U000F07D0", # home assistant
+      "\U000F0384",#music
+      "\U000F07C5",#sound
+      "\U000F1322",#tools
+      "\U000F07AE",#cctv
+      "\U000F0493",#settings cog
+      "\U000F05CB",#voice
+      "\U000F0502",#screen settings
+      "\U000F1C6F",#info
+      "\U000F0521",#scr 
+      "\U000F04B2",#sleep
+      "\U000F1110",#s_saver
+      "\U000F0D90",#screen off
+      "\U000F009E",#bell
+      "\U000F04DB",#stop
+      "\U000F18DD",#light_mut
+      "\U000F062C",#source
+      "\U000F10FE",#kubernetes
+      "\U000F02A4",#github
+      "\U000F06B2",#angular
+      "\U000F0439",#radio
+      "\U000F0BB1",#next
+      "\U000F036B",#videocall
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0CB8",#music_play
+      "\U000F08D6",#settings
+      "\U000F0565",#arming
+      "\U000F050F",#temp sensor
+      "\U000F0150",#clock
+      "\U000F081A",#door
+      "\U000F06D9",#garage
+      "\U000F1A8B",#shutter
+      "\U000F02E9",#Gallery
+      "\U000F0C7B",#recognition
+      "\U000F057C",#vlc
+      "\U000F05C3",#youtube
+      "\U000F18DE",#light
+      "\U000F0675",#application
+      "\U000F00DF"
+
+      
+      ]      
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_24
+    size: 24
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+    ]
+
+  - file: "fonts/Icons.ttf"
+    id: icons_32
+    size: 32
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+    ]
+  - file: "fonts/Icons.ttf"
+    id: icons_36
+    size: 36
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+
+
+
+      ]
+
+  - file: "fonts/Icons.ttf"
+    id: icons_29
+    size: 29
+    bpp: 4
+    glyphs: [
+      "\U0000e900",
+      "\U0000e901",
+      "\U0000e902",
+      "\U0000e903",
+      "\U0000e904",
+      "\U0000e905",
+      "\U0000e906",
+      "\U0000e907",
+      "\U0000e908",
+      "\U0000e909",
+      "\U0000e90a",
+      "\U0000e90b",
+      "\U0000e90c",
+      "\U0000e90d",
+      "\U0000e90e",
+      "\U0000e90f",
+      "\U0000e910",
+      "\U0000e911",
+      "\U0000e912",
+      "\U0000e913",
+      "\U0000e914",
+      "\U0000e915",
+      "\U0000e916",
+      "\U0000e917",
+      "\U0000e918",
+      "\U0000e919",
+
+      ]      
+
+
+
+  - file: "fonts/icons_v2.ttf"
+    id: icons_38
+    size: 38
+    bpp: 4
+    glyphs: [
+      "\U0000e909", # power
+      "\U0000e90c", # back step
+      "\U0000e90d", # forward step
+      "\U0000e912", # repeat_all
+      "\U0000e913", # repeat_off
+      "\U0000e914", # repeat_one
+      "\U0000e90a", # play
+      "\U0000e90b", # pause
+      "\U0000e91c", # stop
+      "\U0000e923", # locate
+      "\U0000e924", # docked
+      "\U0000e915",#spotlight_group_icon
+    ]
+
+  - file: "fonts/icons_v3.ttf"
+    id: icone_38
+    size: 38
+    bpp: 4
+    glyphs: [
+
+      "\U0000e938", #humidity_icon
+      "\U0000e939", #temperature_icon   
+    ]    
+
+  - file: "fonts/icons_v2.ttf"
+    id: icons_48
+    size: 48
+    bpp: 4
+    glyphs: [
+      "\U0000e90a", # play
+      "\U0000e90b", # pause
+      "\U0000e91f", # arrow_up
+      "\U0000e920", # arrow_down
+      "\U0000e91c", # stop
+      "\U0000e923", # locate
+      "\U0000e924", # docked
+      "\U0000e93b", # air_conditioner 
+      "\U0000e936", # heating
+
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_media
+    size: 60 #50
+    bpp: 8
+    glyphs: [
+      "\U000F040A", # mdi-media_play
+      "\U000F03E4", # mdi-media_pause
+      "\U000F04AE", # mdi-media_previous_track
+      "\U000F04AD", # mdi-media_next_track 
+      "\U000F040E", # mdi-media_play_pause
+      "\U000F0662", # skip-next-circle-outline
+      "\U000F0664", # skip-previous-circle-outline
+      "\U000F0453", # refresh
+      "\U000F03E3", # pause
+      "\U000F050F",#temp sensor
+      "\U000F024A",#garden/flower
+      "\U000F0EBA",#stats
+      "\U000F1C6F",#info
+      "\U000F075A",#music
+      "\U000F036F",#voice settings
+      "\U000F0502",#screen settings
+      "\U000F08D6",#settings
+      "\U000F068A",#alarm home
+      "\U000F0BC4",#alarm away
+      "\U000F1828",#armed night
+      "\U000F099E",#disarmed
+      "\U000F0565",#arming
+      "\U000F1A12",#home 
+      "\U000F058E",#humidity         
+      "\U000F0590",#weather
+      "\U000F07AE",#cctv
+      "\U000F1322",#tools
+      "\U000F0493",#settings cog
+      "\U000F0521",#toggle on
+      "\U000F0439",#radio_active
+      "\U000F0CB8",#music_play
+      "\U000F1A13",#heure
+      "\U000F0F30",#meteo
+      "\U000F1923",#timer
+      "\U000F02A4",#github
+      "\U000F062C",#source
+      "\U000F18DD",#light_mut
+      "\U000F056E",#dashboard
+      "\U000F07DC",#micro-sd
+      "\U000F0150",#clock
+      "\U000F0384",#music-box
+      "\U000F035C",#menu
+      "\U000F075D",#volume-plus
+      "\U000F075E",#volume-minus
+      "\U000F0581",#volume-off
+      "\U000F1AE1",#timer_play
+      "\U000F02E9",#Gallery
+      "\U000F07D1",#home-automation
+      "\U000F18DE",#ceiling-light-multiple-outline
+      "\U000F0450",# Icône rafraîchir
+      "\U000F061A", # illumination (lux)
+
+                      
+
+      ]    
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_40
+    size: 40
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_32
+    size: 32
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+      "\U000F09A0", # code pin
+      "\U000F0644", # Reconnaissance Facial
+    ]
+    
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_52
+    size: 52
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+      "\U000F0826", # home
+      "\U000F1A46", # away
+    ]
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_icons_68
+    size: 68
+    bpp: 4
+    glyphs: [
+      "\U000F068A", # shield home
+      "\U000F1828", # shield moon
+      "\U000F099D", # shield lock
+      "\U000F06BB", # shield plane
+      "\U000F099E", # shield off
+      "\U000F0498", # shield
+    ]             
+
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_35
+    size: 35 #50
+    bpp: 8
+    glyphs: [
+      "\U000F061A", # chip
+
+      ] 
+  - file: "fonts/icons_v2.ttf"
+    id: icons_28
+    size: 28
+    bpp: 4
+    glyphs: [
+      "\U0000e902", # exit
+      "\U0000e926", # fan
+      "\U0000e927", # room_plan
+      "\U0000e938", # humidity 
+      "\U0000e937", # co2
+      "\U0000e93a", # air quality (tvoc)
+      "\U0000e939", # temperature 
+      "\U0000e92f", # illumination (lux)
+
+    ]
+
+
+  - file: "gfonts://Roboto"
+    id: roboto_32
+    size: 32
+
+  - file: "gfonts://Roboto"
+    id: roboto_36
+    size: 36  
+
+  - file: "gfonts://Roboto"
+    id: roboto_40
+    size: 40 
+
+  - file: "gfonts://Roboto"
+    id: roboto_42
+    size: 42      
+  - file: "gfonts://Roboto"
+    id: roboto_48
+    size: 48       
+
+  - file: "gfonts://Roboto"
+    id: roboto_60
+    size: 60        
+
+  - file: "gfonts://Roboto"
+    id: roboto_30
+    size: 30
+
+  - file: "gfonts://Roboto"
+    id: roboto_26
+    size: 26
+
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24    
+
+  - file: "gfonts://Roboto"
+    id: roboto_20
+    size: 20
+
+  - file: "gfonts://Roboto"
+    id: roboto_18
+    size: 18    
+  
+  - file: "gfonts://Roboto"
+    id: roboto_16
+    size: 16
+    
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+  - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10          
+
+lvgl:
+  buffer_size: 100%
+  byte_order: little_endian
+  displays:
+    - my_display  
+  touchscreens:
+    - gt911_touchscreen     
+
+  style_definitions:
+    - id: round_mask
+      radius: 50%  # Crée un cercle parfait
+      clip_corner: true
+
+    - id: menu_button
+      radius: 40      
+      #text_font: nunito_20
+      text_align: CENTER
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x0460BD
+      bg_grad_dir: VER
+      border_width: 5
+      border_color: 0x1e84eb
+      border_opa: 70%
+      outline_width: 1
+    - id: time_style
+      text_color: 0xD5D5D5
+      bg_opa: TRANSP
+      radius: 5
+      border_color: 0xE9E9E9
+      border_width: 0
+      border_opa: 50%
+      pad_all: 0
+      shadow_width: 0
+      shadow_opa: TRANSP
+    - id: card
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 20
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      pad_all: 0 
+    - id: weather_style
+      text_color: 0xD5D5D5
+      bg_color: 0
+      bg_opa: TRANSP
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      radius: 0
+      pad_all: 0
+    - id: meter_style
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 10
+      outline_width: 0
+      border_width: 0
+      #border_opa:
+      pad_all: 0      
+    - id: button_light
+      bg_color: 0xCCCCCC
+      bg_grad_color: 0xFF4400
+      bg_grad_dir: HOR
+      border_width: 8
+      border_color: 0x222222
+      border_opa: 50%
+      outline_width: 1
+    - id: button_menu
+      text_color: 0xD5D5D5
+      bg_color: 0x222222
+      bg_opa: COVER
+      radius: 20
+      pad_all: 5
+    - id: button_checked
+      bg_color: 0xFF4400
+      bg_opa: COVER
+      text_color: 0xD5D5D5
+      radius: 20
+      pad_all: 5 
+    - id: sound_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xCCCCCC  # Gris clair pour le texte
+      width: 100%
+      height: 100%
+
+
+    - id: home_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: controls_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%  
+
+    - id: main_content
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: f1_page
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      radius: 0
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 100%
+
+    - id: style_line
+      line_color: 0x0000FF
+      line_width: 8
+      line_rounded: true
+    - id: date_style
+      #text_font: nunito_24
+      align: center
+      text_color: 0x333333
+      bg_opa: cover
+      radius: 4
+      pad_all: 2
+
+        ####Header_Footer##########
+    - id: header_footer
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x005782
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      pad_all: 0
+      pad_row: 0
+      pad_column: 0
+      border_color: 0x0077b3
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 30
+
+    - id: music_style
+      text_font: montserrat_16
+      text_color: 0x504d6d
+      bg_opa: TRANSP
+    
+    - id: title_style
+      text_font: montserrat_14
+      text_color: 0x101010
+      bg_opa: TRANSP
+    
+    - id: btn_round_style
+      radius: 10
+      bg_opa: COVER
+    
+    - id: spectrum_style
+      bg_opa: TRANSP
+      border_width: 0 
+
+  pages:
+
+    - id: idle_page
+      bg_color: color_cyan
+      widgets:
+
+        - arc:
+            align: CENTER
+            width: 358
+            height: 358
+            start_angle: 0
+            end_angle: 360
+            id: pulsing_circle
+            styles: header_footer
+            arc_width: 2
+            arc_color: color_blue
+            bg_color: 0x00000000
+            bg_opa: 0
+            value: 100  # Cercle complet 
