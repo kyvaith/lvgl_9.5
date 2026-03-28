@@ -9,9 +9,6 @@ namespace font {
 static const char *const TAG = "font";
 
 #ifdef USE_LVGL_FONT
-const uint8_t *Font::get_glyph_bitmap(const lv_font_t *font, uint32_t unicode_letter) {
-  auto *fe = (Font *) font->dsc;
-  const auto *gd = fe->get_glyph_data_(unicode_letter);
 static const uint8_t OPA4_TABLE[16] = {0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255};
 
 static const uint8_t OPA2_TABLE[4] = {0, 85, 170, 255};
@@ -24,7 +21,6 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *dsc, lv_draw_buf_t *draw
   if (gd == nullptr) {
     return nullptr;
   }
-  return gd->data;
 
   const uint8_t *bitmap_in = gd->data;
   uint8_t *bitmap_out_tmp = draw_buf->data;
@@ -97,10 +93,17 @@ const void *Font::get_glyph_bitmap(lv_font_glyph_dsc_t *dsc, lv_draw_buf_t *draw
 }
 
 bool Font::get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uint32_t unicode_letter, uint32_t next) {
+  auto *fe = (Font *) font->dsc;
+  const auto *gd = fe->get_glyph_data_(unicode_letter);
+  if (gd == nullptr) {
+    return false;
+  }
+  dsc->adv_w = gd->advance;
+  dsc->ofs_x = gd->offset_x;
+  dsc->ofs_y = fe->height_ - gd->height - gd->offset_y - fe->lv_font_.base_line;
   dsc->box_w = gd->width;
   dsc->box_h = gd->height;
   dsc->is_placeholder = 0;
-  dsc->bpp = fe->get_bpp();
   dsc->format = (lv_font_glyph_format_t) fe->get_bpp();
   dsc->gid.index = unicode_letter;
   return true;
