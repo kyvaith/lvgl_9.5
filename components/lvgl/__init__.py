@@ -437,6 +437,16 @@ async def to_code(configs):
         if canonical in _ALL_CANONICAL_WIDGETS:
             _used_canonical.add(canonical)
 
+    # lv_theme_default.c references lv_buttonmatrix_class unconditionally,
+    # so buttonmatrix must always be compiled even if not used in the YAML.
+    _THEME_REQUIRED_WIDGETS = {"BTNMATRIX"}
+    _used_canonical |= _THEME_REQUIRED_WIDGETS
+    # Also add to lv_uses so the build filter includes the source files
+    for w in _THEME_REQUIRED_WIDGETS:
+        _reverse = {v: k for k, v in _TO_CANONICAL.items()}
+        long_name = _reverse.get(w, w).lower()
+        helpers.lv_uses.add(long_name)
+
     # Set LV_USE_*=1 for used widgets, LV_USE_*=0 for unused (canonical names only)
     for widget in _ALL_CANONICAL_WIDGETS:
         df.add_define(f"LV_USE_{widget}", "1" if widget in _used_canonical else "0")
