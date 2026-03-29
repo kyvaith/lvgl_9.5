@@ -88,6 +88,8 @@ class TabviewType(WidgetType):
             tab_obj = cg.Pvariable(w_id, cg.nullptr, type_=lv_tab_t)
             tab_widget = Widget.create(w_id, tab_obj, obj_spec)
             lv_assign(tab_obj, lv_expr.tabview_add_tab(w.obj, tab_conf[CONF_NAME]))
+            # Force bg_opa to COVER so bg_color works without explicit bg_opa
+            tab_widget.set_style("bg_opa", literal("LV_OPA_COVER"))
             await set_obj_properties(tab_widget, tab_conf)
             await add_widgets(tab_widget, tab_conf)
         tab_style = config.get(CONF_TAB_STYLE, {})
