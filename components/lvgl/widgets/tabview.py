@@ -13,6 +13,7 @@ from esphome.const import (
 from ..automation import action_to_code
 from ..defines import (
     CONF_ANIMATED,
+    CONF_INDICATOR,
     CONF_MAIN,
     CONF_TAB_ID,
     CONF_TABS,
@@ -46,7 +47,9 @@ TABVIEW_SCHEMA = cv.Schema(
                 },
             )
         ),
-        cv.Optional(CONF_TAB_STYLE): part_schema(buttonmatrix_spec.parts),
+        cv.Optional(CONF_TAB_STYLE): part_schema(
+            buttonmatrix_spec.parts + (CONF_INDICATOR,)
+        ),
         cv.Optional(CONF_CONTENT_STYLE): part_schema(obj_spec.parts),
         cv.Optional(CONF_POSITION, default="top"): DIRECTIONS.one_of,
         cv.Optional(CONF_SIZE, default="10%"): size,
