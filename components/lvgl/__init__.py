@@ -12,6 +12,15 @@ from esphome.components.const import (
 from esphome.components.display import Display
 from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.components.esp32.const import KEY_ESP32, KEY_SDKCONFIG_OPTIONS
+from esphome.components.image import (
+    CONF_OPAQUE,
+    IMAGE_TYPE,
+    ImageBinary,
+    ImageGrayscale,
+    ImageRGB,
+    ImageRGB565,
+    get_image_metadata,
+)
 from esphome.components.psram import DOMAIN as PSRAM_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import (
@@ -545,6 +554,8 @@ async def to_code(configs):
     # This must be done after all widgets are created
     for comp in helpers.lvgl_components_required:
         cg.add_define(f"USE_LVGL_{comp.upper()}")
+    # Currently always need RGB565 for the display buffer, and ARGB8888 is used for layer blending
+    lv_image_formats = {"RGB565", "ARGB8888"}
     if {
         "transform_rotation",
         "transform_scale",
@@ -678,6 +689,23 @@ async def to_code(configs):
     ):
         df.get_data(df.KEY_LV_DEFINES)["LV_USE_LOG"] = "0"
 
+    for image_id in lv_images_used:
+        await cg.get_variable(image_id)
+        metadata = get_image_metadata(image_id.id)
+        image_type = IMAGE_TYPE[metadata.image_type]
+        transparent = metadata.transparency != CONF_OPAQUE
+        if image_type == ImageBinary:
+            lv_image_formats.add("I1")
+        if image_type == ImageGrayscale:
+            lv_image_formats.add("A8")
+        if image_type == ImageRGB565:
+            lv_image_formats.add("RGB565A8" if transparent else "RGB565")
+        if image_type == ImageRGB:
+            lv_image_formats.add("ARGB8888" if transparent else "RGB8888")
+    if df.is_defined("LV_GRADIENT_MAX_STOPS"):
+        lv_image_formats.add("RGB888")
+    for fmt in lv_image_formats:
+        df.add_define(f"LV_DRAW_SW_SUPPORT_{fmt}", "1")
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")

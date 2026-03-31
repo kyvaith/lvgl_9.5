@@ -76,6 +76,10 @@ def add_define(macro, value="1"):
     lv_defines[macro] = value
 
 
+def is_defined(macro) -> bool:
+    return macro in get_data(KEY_LV_DEFINES)
+
+
 def literal(arg) -> MockObj:
     if isinstance(arg, str):
         return MockObj(arg)

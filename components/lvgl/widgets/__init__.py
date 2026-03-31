@@ -411,7 +411,11 @@ class Widget:
 
 
 # Map of widgets to their config, used for trigger generation
-widget_map: dict[Any, Widget] = {}
+widget_map: dict[ID, Widget] = {}
+
+
+def is_widget_completed(name: ID) -> bool:
+    return name in widget_map
 
 
 class LvScrActType(WidgetType):
