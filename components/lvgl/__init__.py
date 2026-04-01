@@ -554,8 +554,10 @@ async def to_code(configs):
     # This must be done after all widgets are created
     for comp in helpers.lvgl_components_required:
         cg.add_define(f"USE_LVGL_{comp.upper()}")
-    # Currently always need RGB565 for the display buffer, and ARGB8888 is used for layer blending
+
+    # Currently always need RGB565 for the display buffer, and ARGB8888 is used for layer blending.
     lv_image_formats = {"RGB565", "ARGB8888"}
+
     if {
         "transform_rotation",
         "transform_scale",
@@ -689,6 +691,16 @@ async def to_code(configs):
     ):
         df.get_data(df.KEY_LV_DEFINES)["LV_USE_LOG"] = "0"
 
+    if {
+        "drop_shadow_color",
+        "drop_shadow_offset_x",
+        "drop_shadow_offset_y",
+        "drop_shadow_opa",
+        "drop_shadow_quality",
+        "drop_shadow_radius",
+    } & styles_used:
+        lv_image_formats.add("A8")
+
     for image_id in lv_images_used:
         await cg.get_variable(image_id)
         metadata = get_image_metadata(image_id.id)
@@ -706,6 +718,7 @@ async def to_code(configs):
         lv_image_formats.add("RGB888")
     for fmt in lv_image_formats:
         df.add_define(f"LV_DRAW_SW_SUPPORT_{fmt}", "1")
+
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
     cg.add_build_flag("-DLV_CONF_H=1")
