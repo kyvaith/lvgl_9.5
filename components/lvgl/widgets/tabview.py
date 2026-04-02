@@ -13,6 +13,7 @@ from esphome.const import (
 from ..automation import action_to_code
 from ..defines import (
     CONF_ANIMATED,
+    CONF_INDICATOR,
     CONF_MAIN,
     CONF_TAB_ID,
     CONF_TABS,
@@ -46,7 +47,9 @@ TABVIEW_SCHEMA = cv.Schema(
                 },
             )
         ),
-        cv.Optional(CONF_TAB_STYLE): part_schema(buttonmatrix_spec.parts),
+        cv.Optional(CONF_TAB_STYLE): part_schema(
+            buttonmatrix_spec.parts + (CONF_INDICATOR,)
+        ),
         cv.Optional(CONF_CONTENT_STYLE): part_schema(obj_spec.parts),
         cv.Optional(CONF_POSITION, default="top"): DIRECTIONS.one_of,
         cv.Optional(CONF_SIZE, default="10%"): size,
@@ -85,6 +88,8 @@ class TabviewType(WidgetType):
             tab_obj = cg.Pvariable(w_id, cg.nullptr, type_=lv_tab_t)
             tab_widget = Widget.create(w_id, tab_obj, obj_spec)
             lv_assign(tab_obj, lv_expr.tabview_add_tab(w.obj, tab_conf[CONF_NAME]))
+            # Force bg_opa to COVER so bg_color works without explicit bg_opa
+            tab_widget.set_style("bg_opa", literal("LV_OPA_COVER"))
             await set_obj_properties(tab_widget, tab_conf)
             await add_widgets(tab_widget, tab_conf)
         tab_style = config.get(CONF_TAB_STYLE, {})
@@ -102,11 +107,18 @@ class TabviewType(WidgetType):
                             tab_items_style,
                         )
 
-        if content_style := config.get(CONF_CONTENT_STYLE):
-            with LocalVariable(
-                "tabview_content", lv_obj_t, rhs=lv_expr.tabview_get_content(w.obj)
-            ) as content_obj:
-                await set_obj_properties(Widget(content_obj, obj_spec), content_style)
+        with LocalVariable(
+            "tabview_content", lv_obj_t, rhs=lv_expr.tabview_get_content(w.obj)
+        ) as content_obj:
+            if content_style := config.get(CONF_CONTENT_STYLE):
+                await set_obj_properties(
+                    Widget(content_obj, obj_spec), content_style
+                )
+            lv_obj.remove_flag(
+                content_obj, literal("LV_OBJ_FLAG_SCROLLABLE")
+            )
+        lv_obj.update_layout(w.obj)
+        lv_obj.invalidate(w.obj)
 
 
 tabview_spec = TabviewType()
