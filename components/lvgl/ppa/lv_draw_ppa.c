@@ -113,7 +113,33 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 
         case LV_DRAW_TASK_TYPE_IMAGE: {
             const lv_draw_image_dsc_t * dsc = (const lv_draw_image_dsc_t *)t->draw_dsc;
+
+#ifdef LV_USE_PPA_IMG
+            /* PPA SRM handles 90-degree increment rotation in hardware */
+            if(dsc->rotation != 0) {
+                int32_t angle = dsc->rotation % 3600;
+                if(angle < 0) angle += 3600;
+                /* Only accept exact 90° multiples */
+                if(angle != 0 && angle != 900 && angle != 1800 && angle != 2700) return 0;
+                if(dsc->skew_x != 0 || dsc->skew_y != 0) return 0;
+                if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
+                if(dsc->blend_mode != LV_BLEND_MODE_NORMAL) return 0;
+                if(!ppa_src_cf_supported((lv_color_format_t)dsc->header.cf)) return 0;
+
+                lv_draw_buf_t * dest_buf = t->target_layer->draw_buf;
+                if(!ppa_buf_usable(dest_buf)) return 0;
+                if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
+
+                /* SRM rotation gets higher priority than software */
+                if(t->preference_score > 50) {
+                    t->preference_score = 50;
+                    t->preferred_draw_unit_id = draw_unit->idx;
+                }
+                return 1;
+            }
+#else
             if(dsc->rotation != 0) return 0;
+#endif
             if(dsc->skew_x != 0 || dsc->skew_y != 0) return 0;
             if(dsc->scale_x != LV_SCALE_NONE || dsc->scale_y != LV_SCALE_NONE) return 0;
             if(dsc->opa < (lv_opa_t)LV_OPA_MAX) return 0;
@@ -179,9 +205,18 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
                 case LV_DRAW_TASK_TYPE_FILL:
                     lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
                     break;
-                case LV_DRAW_TASK_TYPE_IMAGE:
-                    lv_draw_ppa_img(t, (lv_draw_image_dsc_t *)t->draw_dsc, &t->area);
+                case LV_DRAW_TASK_TYPE_IMAGE: {
+                    lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
+#ifdef LV_USE_PPA_IMG
+                    if(img_dsc->rotation != 0) {
+                        lv_draw_ppa_img_rotate(t, img_dsc, &t->area);
+                    } else
+#endif
+                    {
+                        lv_draw_ppa_img(t, img_dsc, &t->area);
+                    }
                     break;
+                }
                 default:
                     break;
             }

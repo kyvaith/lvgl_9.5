@@ -1,0 +1,224 @@
+# =============================================================================
+# PPA Image Rotation Example for Waveshare ESP32-P4 7" Touch LCD
+# =============================================================================
+# This example demonstrates hardware-accelerated image rotation using the
+# ESP32-P4 PPA (Pixel Processing Accelerator) SRM engine.
+#
+# Features:
+#   - Round image rotating in real-time (90-degree increments via PPA hardware)
+#   - Smooth continuous rotation via LVGL software renderer (PPA accelerates
+#     all other draw operations like fills and blends, freeing CPU for rotation)
+#   - FPS counter to measure performance
+#
+# Requirements:
+#   - ESP32-P4 based board (e.g., Waveshare ESP32-P4-WIFI6-TOUCH-LCD-7B)
+#   - A round PNG image (ARGB8888 with transparent corners) placed in the
+#     ESPHome config directory, e.g., "round_dial.png" (recommended: 200x200px)
+#
+# To use: place a round PNG image named "round_dial.png" in your ESPHome
+# config directory. The image should be square with transparent corners
+# (e.g., a compass, gauge dial, fan, or clock face).
+# =============================================================================
+
+substitutions:
+  name: waveshare-ppa-demo
+  friendly_name: "PPA Rotation Demo"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  platformio_options:
+    board_build.flash_mode: qio
+    board_build.flash_size: 16MB
+
+esp32:
+  board: esp32-p4-function-ev-board
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: "5.4.0"
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_16MB: y
+      CONFIG_SPIRAM: y
+      CONFIG_SPIRAM_MODE_HEX: y
+      CONFIG_SPIRAM_SPEED_200M: y
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400: y
+      CONFIG_SOC_PPA_SUPPORTED: y
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+logger:
+  level: INFO
+
+# --- Display Configuration ---
+i2c:
+  - id: bsp_bus
+    sda: GPIO8
+    scl: GPIO7
+    frequency: 400kHz
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    interrupt_pin: GPIO3
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: WAVESHARE-ESP32-P4-WIFI6-TOUCH-LCD-7B
+    reset_pin:
+      number: 33
+    rotation: 0
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 1024
+      height: 600
+
+# --- Image declaration ---
+# Place a round PNG image (200x200, ARGB8888 with alpha) in your config dir
+image:
+  - file: "round_dial.png"
+    id: img_round_dial
+    type: RGBA
+    resize: 200x200
+
+# --- Global variables ---
+globals:
+  - id: rotation_angle
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: fps_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+  - id: last_fps
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+# --- Intervals for rotation animation and FPS counter ---
+interval:
+  # Rotate the image: increment angle every 50ms (smooth rotation)
+  - interval: 50ms
+    then:
+      - lambda: |-
+          // Increment rotation by 5 degrees (50 in LVGL 0.1-degree units)
+          id(rotation_angle) += 50;
+          if (id(rotation_angle) >= 3600) {
+            id(rotation_angle) -= 3600;
+          }
+          // Update the LVGL image rotation
+          lv_image_set_rotation(id(lv_rotating_image), id(rotation_angle));
+          id(fps_count)++;
+
+  # FPS counter: update every second
+  - interval: 1s
+    then:
+      - lambda: |-
+          id(last_fps) = id(fps_count);
+          id(fps_count) = 0;
+          // Update FPS label
+          lv_label_set_text_fmt(id(lv_fps_label), "FPS: %d", id(last_fps));
+
+# =============================================================================
+# LVGL Configuration with PPA + PPA_IMG enabled
+# =============================================================================
+lvgl:
+  use_ppa: true        # Enable PPA for fill + blend acceleration
+  use_ppa_img: true    # Enable PPA SRM for hardware image rotation
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+
+  pages:
+    - id: main_page
+      widgets:
+        # --- Dark background ---
+        - obj:
+            width: 1024
+            height: 600
+            x: 0
+            y: 0
+            bg_color: 0x1A1A2E
+            bg_opa: COVER
+            border_width: 0
+            pad_all: 0
+            widgets:
+              # --- Title ---
+              - label:
+                  id: lv_title_label
+                  align: TOP_MID
+                  y: 20
+                  text: "PPA Image Rotation Demo"
+                  text_color: 0xFFFFFF
+                  text_font: montserrat_28
+
+              # --- Rotating round image (center) ---
+              - image:
+                  id: lv_rotating_image
+                  align: CENTER
+                  y: -20
+                  src: img_round_dial
+                  rotation: 0
+                  pivot_x: 100    # Center of 200x200 image
+                  pivot_y: 100
+
+              # --- FPS counter ---
+              - label:
+                  id: lv_fps_label
+                  align: BOTTOM_MID
+                  y: -40
+                  text: "FPS: --"
+                  text_color: 0x00FF00
+                  text_font: montserrat_24
+
+              # --- Info text ---
+              - label:
+                  id: lv_info_label
+                  align: BOTTOM_MID
+                  y: -10
+                  text: "PPA SRM: HW rotation (90 deg) | SW rotation (smooth)"
+                  text_color: 0x888888
+                  text_font: montserrat_14
+
+              # --- Buttons to switch rotation mode ---
+              - button:
+                  align: BOTTOM_LEFT
+                  x: 20
+                  y: -30
+                  width: 200
+                  height: 50
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "90 Steps (HW)"
+                        text_color: 0xFFFFFF
+                  on_click:
+                    then:
+                      - lambda: |-
+                          // Switch to 90-degree steps (PPA hardware accelerated)
+                          id(rotation_angle) = 0;
+
+              - button:
+                  align: BOTTOM_RIGHT
+                  x: -20
+                  y: -30
+                  width: 200
+                  height: 50
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Smooth (SW)"
+                        text_color: 0xFFFFFF
+                  on_click:
+                    then:
+                      - lambda: |-
+                          // Smooth rotation uses software renderer
+                          // PPA still accelerates fills/blends for better FPS
+                          id(rotation_angle) = 0;
