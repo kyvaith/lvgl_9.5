@@ -168,6 +168,17 @@ def final_validation(config_list):
                 config[CONF_DRAW_ROUNDING] = max(
                     draw_rounding, config[CONF_DRAW_ROUNDING]
                 )
+            # Auto-detect RGB888 for MIPI DSI displays (ESP32-P4 native 24-bit).
+            # MIPI DSI always outputs RGB888 — using RGB565 wastes color quality
+            # and prevents PPA from working at full efficiency.
+            # Only auto-upgrade when the user has not explicitly set color_depth: 32.
+            display_platform = display.get("platform", "")
+            if display_platform == "mipi_dsi" and config[CONF_COLOR_DEPTH] == 16:
+                config[CONF_COLOR_DEPTH] = 32
+                df.LOGGER.info(
+                    "MIPI DSI display detected: auto-selecting color_depth=32 (RGB888). "
+                    "Add 'color_depth: 32' to your lvgl: config to suppress this message."
+                )
         buffer_frac = config[CONF_BUFFER_SIZE]
         if CORE.is_esp32 and buffer_frac > 0.5 and PSRAM_DOMAIN not in global_config:
             df.LOGGER.warning("buffer_size: may need to be reduced without PSRAM")
@@ -563,7 +574,7 @@ LVGL_SCHEMA = cv.All(
             {
                 cv.GenerateID(CONF_ID): cv.declare_id(LvglComponent),
                 cv.GenerateID(df.CONF_DISPLAYS): display_schema,
-                cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(16),
+                cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(16, 32),
                 cv.Optional(
                     df.CONF_DEFAULT_FONT, default="montserrat_14"
                 ): lvalid.lv_font,
