@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -44,8 +44,8 @@ private:
 public:
     ~GifSaver();
 
-    bool save(Paint* paint, const string& path, bool compress) override;
-    bool save(Animation* animation, Paint* bg, const string& path, uint32_t quality, uint32_t fps) override;
+    bool save(Paint* paint, Paint* bg, const char* filename, uint32_t quality) override;
+    bool save(Animation* animation, Paint* bg, const char* filename, uint32_t quality, uint32_t fps) override;
     bool close() override;
 };
 

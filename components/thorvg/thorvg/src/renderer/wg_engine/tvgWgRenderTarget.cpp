@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,23 +22,27 @@
 
 #include "tvgWgRenderTarget.h"
 
-void WgRenderStorage::initialize(WgContext& context, uint32_t width, uint32_t height)
+void WgRenderTarget::initialize(WgContext& context, uint32_t width, uint32_t height)
 {
     this->width = width;
     this->height = height;
     texture = context.createTexStorage(width, height, WGPUTextureFormat_RGBA8Unorm);
+    textureMS = context.createTexAttachement(width, height, WGPUTextureFormat_RGBA8Unorm, 4);
     texView = context.createTextureView(texture);
-    bindGroupRead = context.pipelines->layouts.createBindGroupStrorage1RO(texView);
-    bindGroupWrite = context.pipelines->layouts.createBindGroupStrorage1WO(texView);
-    bindGroupTexure = context.pipelines->layouts.createBindGroupTexSampled(context.samplerNearestRepeat, texView);
+    texViewMS = context.createTextureView(textureMS);
+    bindGroupRead = context.layouts.createBindGroupStrorage1RO(texView);
+    bindGroupWrite = context.layouts.createBindGroupStrorage1WO(texView);
+    bindGroupTexture = context.layouts.createBindGroupTexSampled(context.samplerNearestRepeat, texView);
 }
 
 
-void WgRenderStorage::release(WgContext& context)
+void WgRenderTarget::release(WgContext& context)
 {
-    context.pipelines->layouts.releaseBindGroup(bindGroupTexure);
-    context.pipelines->layouts.releaseBindGroup(bindGroupWrite);
-    context.pipelines->layouts.releaseBindGroup(bindGroupRead);
+    context.layouts.releaseBindGroup(bindGroupTexture);
+    context.layouts.releaseBindGroup(bindGroupWrite);
+    context.layouts.releaseBindGroup(bindGroupRead);
+    context.releaseTextureView(texViewMS);
+    context.releaseTexture(textureMS);
     context.releaseTextureView(texView);
     context.releaseTexture(texture);
     height = 0;
@@ -46,42 +50,42 @@ void WgRenderStorage::release(WgContext& context)
 }
 
 //*****************************************************************************
-// render storage pool
+// render target pool
 //*****************************************************************************
 
-WgRenderStorage* WgRenderStoragePool::allocate(WgContext& context)
+WgRenderTarget* WgRenderTargetPool::allocate(WgContext& context)
 {
-    WgRenderStorage* renderStorage{};
+    WgRenderTarget* renderTarget{};
     if (pool.count > 0) {
-        renderStorage = pool.last();
+        renderTarget = pool.last();
         pool.pop();
     } else {
-        renderStorage = new WgRenderStorage;
-        renderStorage->initialize(context, width, height);
-        list.push(renderStorage);
+        renderTarget = new WgRenderTarget;
+        renderTarget->initialize(context, width, height);
+        list.push(renderTarget);
     }
-    return renderStorage;
+    return renderTarget;
 };
 
 
-void WgRenderStoragePool::free(WgContext& context, WgRenderStorage* renderStorage)
+void WgRenderTargetPool::free(WgContext& context, WgRenderTarget* renderTarget)
 {
-    pool.push(renderStorage);
+    pool.push(renderTarget);
 };
 
 
-void WgRenderStoragePool::initialize(WgContext& context, uint32_t width, uint32_t height)
+void WgRenderTargetPool::initialize(WgContext& context, uint32_t width, uint32_t height)
 {
     this->width = width;
     this->height = height;
 }
 
 
-void WgRenderStoragePool::release(WgContext& context)
+void WgRenderTargetPool::release(WgContext& context)
 {
-    for (uint32_t i = 0; i < list.count; i++) {
-       list[i]->release(context);
-       delete list[i];
+    ARRAY_FOREACH(p, list) {
+       (*p)->release(context);
+       delete(*p);
     }
     list.clear();
     pool.clear();

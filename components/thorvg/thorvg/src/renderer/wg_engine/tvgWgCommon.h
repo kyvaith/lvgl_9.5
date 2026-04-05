@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,13 +23,7 @@
 #ifndef _TVG_WG_COMMON_H_
 #define _TVG_WG_COMMON_H_
 
-#include <cassert>
-#include <webgpu/webgpu.h>
-
-#define WG_VERTEX_BUFFER_MIN_SIZE 2048
-#define WG_INDEX_BUFFER_MIN_SIZE 2048
-
-class WgPipelines;
+#include "tvgWgBindGroups.h"
 
 struct WgContext {
     // external webgpu handles
@@ -39,23 +33,22 @@ struct WgContext {
     // common webgpu handles
     WGPUQueue queue{};
     WGPUTextureFormat preferredFormat{};
-    // external handles (do not release)
-    WgPipelines* pipelines{};
     // shared webgpu assets
-    WGPUBuffer bufferIndexFan{};
     WGPUSampler samplerNearestRepeat{};
     WGPUSampler samplerLinearRepeat{};
     WGPUSampler samplerLinearMirror{};
     WGPUSampler samplerLinearClamp{};
+    // bind groups layouts
+    WgBindGroupLayouts layouts;
 
     void initialize(WGPUInstance instance, WGPUDevice device);
     void release();
     
     // create common objects
-    WGPUSampler createSampler(WGPUFilterMode filter, WGPUMipmapFilterMode mipmapFilter, WGPUAddressMode addrMode);
+    WGPUSampler createSampler(WGPUFilterMode filter, WGPUMipmapFilterMode mipmapFilter, WGPUAddressMode addrMode, uint16_t anisotropy = 1);
     WGPUTexture createTexture(uint32_t width, uint32_t height, WGPUTextureFormat format);
-    WGPUTexture createTexStorage(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc = 1);
-    WGPUTexture createTexStencil(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc = 1);
+    WGPUTexture createTexStorage(uint32_t width, uint32_t height, WGPUTextureFormat format);
+    WGPUTexture createTexAttachement(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc);
     WGPUTextureView createTextureView(WGPUTexture texture);
     bool allocateTexture(WGPUTexture& texture, uint32_t width, uint32_t height, WGPUTextureFormat format, void* data);
 
@@ -63,16 +56,23 @@ struct WgContext {
     void releaseTextureView(WGPUTextureView& textureView);
     void releaseTexture(WGPUTexture& texture);
     void releaseSampler(WGPUSampler& sampler);
-    void releaseQueue(WGPUQueue queue);
+    void releaseQueue(WGPUQueue& queue);
 
     // create buffer objects (return true, if buffer handle was changed)
     bool allocateBufferUniform(WGPUBuffer& buffer, const void* data, uint64_t size);
     bool allocateBufferVertex(WGPUBuffer& buffer, const float* data, uint64_t size);
     bool allocateBufferIndex(WGPUBuffer& buffer, const uint32_t* data, uint64_t size);
-    bool allocateBufferIndexFan(uint64_t vertexCount);
 
     // release buffer objects
     void releaseBuffer(WGPUBuffer& buffer);
+
+    // command encoder
+    WGPUCommandEncoder createCommandEncoder();
+    void submitCommandEncoder(WGPUCommandEncoder encoder);
+    void releaseCommandEncoder(WGPUCommandEncoder& encoder);
+
+    void submit();
+    bool invalid();
 };
 
 #endif // _TVG_WG_COMMON_H_

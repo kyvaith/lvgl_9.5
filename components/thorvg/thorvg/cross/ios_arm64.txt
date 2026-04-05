@@ -1,4 +1,4 @@
-# build for the ios simulator(Mac) & iphone devices
+# build for the ios devices (Apple Silicon)
 
 [binaries]
 cpp = ['clang++', '-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk']
@@ -17,6 +17,6 @@ cpp_link_args = ['-miphoneos-version-min=11.0']
 system = 'darwin'
 subsystem = 'ios'
 kernel = 'xnu'
-cpu_family = 'arm64'
-cpu = 'arm64'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
 endian = 'little'

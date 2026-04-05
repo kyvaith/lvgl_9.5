@@ -149,7 +149,7 @@ ecma_typedarray_get_float_element (lit_utf8_byte_t *src) /**< the location in th
 {
   float num;
   ECMA_TYPEDARRAY_GET_ELEMENT (src, num, float);
-  return ecma_make_number_value (num);
+  return ecma_make_number_value ((ecma_value_t)num);
 } /* ecma_typedarray_get_float_element */
 
 /**
@@ -2083,7 +2083,7 @@ ecma_op_create_typedarray_with_type_and_length (ecma_typedarray_type_t typedarra
 } /* ecma_op_create_typedarray_with_type_and_length */
 
 /**
- * Method for getting the additional typedArray informations.
+ * Method for getting the additional typedArray information.
  */
 ecma_typedarray_info_t
 ecma_typedarray_get_info (ecma_object_t *typedarray_p)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,9 +20,7 @@
  * SOFTWARE.
  */
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#endif
+#include <cassert>
 #include "tvgWgCommon.h"
 #include "tvgArray.h"
 
@@ -41,35 +39,37 @@ void WgContext::initialize(WGPUInstance instance, WGPUDevice device)
     assert(queue);
 
     // create shared webgpu assets
-    allocateBufferIndexFan(32768);
     samplerNearestRepeat = createSampler(WGPUFilterMode_Nearest, WGPUMipmapFilterMode_Nearest, WGPUAddressMode_Repeat);
-    samplerLinearRepeat = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_Repeat);
-    samplerLinearMirror = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_MirrorRepeat);
-    samplerLinearClamp = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_ClampToEdge);
+    samplerLinearRepeat = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_Repeat, 4);
+    samplerLinearMirror = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_MirrorRepeat, 4);
+    samplerLinearClamp = createSampler(WGPUFilterMode_Linear, WGPUMipmapFilterMode_Linear, WGPUAddressMode_ClampToEdge, 4);
     assert(samplerNearestRepeat);
     assert(samplerLinearRepeat);
     assert(samplerLinearMirror);
     assert(samplerLinearClamp);
+
+    // initialize bind group layouts
+    layouts.initialize(device);
 }
 
 
 void WgContext::release()
 {
+    layouts.release();
     releaseSampler(samplerLinearClamp);
     releaseSampler(samplerLinearMirror);
     releaseSampler(samplerLinearRepeat);
     releaseSampler(samplerNearestRepeat);
-    releaseBuffer(bufferIndexFan);
     releaseQueue(queue);
 }
 
 
-WGPUSampler WgContext::createSampler(WGPUFilterMode filter, WGPUMipmapFilterMode mipmapFilter, WGPUAddressMode addrMode)
+WGPUSampler WgContext::createSampler(WGPUFilterMode filter, WGPUMipmapFilterMode mipmapFilter, WGPUAddressMode addrMode, uint16_t anisotropy)
 {
     const WGPUSamplerDescriptor samplerDesc {
         .addressModeU = addrMode, .addressModeV = addrMode, .addressModeW = addrMode,
         .magFilter = filter, .minFilter = filter, .mipmapFilter = mipmapFilter,
-        .lodMinClamp = 0.0f, .lodMaxClamp = 32.0f, .maxAnisotropy = 1
+        .lodMinClamp = 0.0f, .lodMaxClamp = 32.0f, .maxAnisotropy = anisotropy
     };
     return wgpuDeviceCreateSampler(device, &samplerDesc);
 }
@@ -79,20 +79,18 @@ bool WgContext::allocateTexture(WGPUTexture& texture, uint32_t width, uint32_t h
 {
     if ((texture) && (wgpuTextureGetWidth(texture) == width) && (wgpuTextureGetHeight(texture) == height)) {
         // update texture data
-        const WGPUImageCopyTexture imageCopyTexture{ .texture = texture };
-        const WGPUTextureDataLayout textureDataLayout{ .bytesPerRow = 4 * width, .rowsPerImage = height };
+        const WGPUTexelCopyTextureInfo copyTextureInfo{ .texture = texture };
+        const WGPUTexelCopyBufferLayout copyBufferLayout{ .bytesPerRow = 4 * width, .rowsPerImage = height };
         const WGPUExtent3D writeSize{ .width = width, .height = height, .depthOrArrayLayers = 1 };
-        wgpuQueueWriteTexture(queue, &imageCopyTexture, data, 4 * width * height, &textureDataLayout, &writeSize);
-        wgpuQueueSubmit(queue, 0, nullptr);
+        wgpuQueueWriteTexture(queue, &copyTextureInfo, data, 4 * width * height, &copyBufferLayout, &writeSize);
     } else {
         releaseTexture(texture);
         texture = createTexture(width, height, format);
         // update texture data
-        const WGPUImageCopyTexture imageCopyTexture{ .texture = texture };
-        const WGPUTextureDataLayout textureDataLayout{ .bytesPerRow = 4 * width, .rowsPerImage = height };
+        const WGPUTexelCopyTextureInfo copyTextureInfo{ .texture = texture };
+        const WGPUTexelCopyBufferLayout copyBufferLayout{ .bytesPerRow = 4 * width, .rowsPerImage = height };
         const WGPUExtent3D writeSize{ .width = width, .height = height, .depthOrArrayLayers = 1 };
-        wgpuQueueWriteTexture(queue, &imageCopyTexture, data, 4 * width * height, &textureDataLayout, &writeSize);
-        wgpuQueueSubmit(queue, 0, nullptr);
+        wgpuQueueWriteTexture(queue, &copyTextureInfo, data, 4 * width * height, &copyBufferLayout, &writeSize);
         return true;
     }
     return false;
@@ -111,18 +109,18 @@ WGPUTexture WgContext::createTexture(uint32_t width, uint32_t height, WGPUTextur
 }
 
 
-WGPUTexture WgContext::createTexStorage(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc)
+WGPUTexture WgContext::createTexStorage(uint32_t width, uint32_t height, WGPUTextureFormat format)
 {
     const WGPUTextureDescriptor textureDesc {
         .usage = WGPUTextureUsage_CopySrc | WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_StorageBinding | WGPUTextureUsage_RenderAttachment,
         .dimension = WGPUTextureDimension_2D, .size = { width, height, 1 },
-        .format = format, .mipLevelCount = 1, .sampleCount = sc
+        .format = format, .mipLevelCount = 1, .sampleCount = 1
     };
     return wgpuDeviceCreateTexture(device, &textureDesc);
 }
 
 
-WGPUTexture WgContext::createTexStencil(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc)
+WGPUTexture WgContext::createTexAttachement(uint32_t width, uint32_t height, WGPUTextureFormat format, uint32_t sc)
 {
     const WGPUTextureDescriptor textureDesc {
         .usage = WGPUTextureUsage_RenderAttachment,
@@ -198,10 +196,7 @@ bool WgContext::allocateBufferVertex(WGPUBuffer& buffer, const float* data, uint
         wgpuQueueWriteBuffer(queue, buffer, 0, data, size);
     else {
         releaseBuffer(buffer);
-        const WGPUBufferDescriptor bufferDesc {
-            .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex,
-            .size = size > WG_VERTEX_BUFFER_MIN_SIZE ? size : WG_VERTEX_BUFFER_MIN_SIZE
-        };
+        const WGPUBufferDescriptor bufferDesc { .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex, .size = size };
         buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
         wgpuQueueWriteBuffer(queue, buffer, 0, data, size);
         return true;
@@ -216,35 +211,9 @@ bool WgContext::allocateBufferIndex(WGPUBuffer& buffer, const uint32_t* data, ui
         wgpuQueueWriteBuffer(queue, buffer, 0, data, size);
     else {
         releaseBuffer(buffer);
-        const WGPUBufferDescriptor bufferDesc {
-            .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index,
-            .size = size > WG_INDEX_BUFFER_MIN_SIZE ? size : WG_INDEX_BUFFER_MIN_SIZE
-        };
+        const WGPUBufferDescriptor bufferDesc { .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index, .size = size };
         buffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
         wgpuQueueWriteBuffer(queue, buffer, 0, data, size);
-        return true;
-    }
-    return false;
-}
-
-
-bool WgContext::allocateBufferIndexFan(uint64_t vertexCount)
-{
-    uint64_t indexCount = (vertexCount - 2) * 3;
-    if ((!bufferIndexFan) || (wgpuBufferGetSize(bufferIndexFan) < indexCount * sizeof(uint32_t))) {
-        tvg::Array<uint32_t> indexes(indexCount);
-        for (size_t i = 0; i < vertexCount - 2; i++) {
-            indexes.push(0);
-            indexes.push(i + 1);
-            indexes.push(i + 2);
-        }
-        releaseBuffer(bufferIndexFan);
-        WGPUBufferDescriptor bufferDesc{
-            .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index,
-            .size = indexCount * sizeof(uint32_t)
-        };
-        bufferIndexFan = wgpuDeviceCreateBuffer(device, &bufferDesc);
-        wgpuQueueWriteBuffer(queue, bufferIndexFan, 0, &indexes[0], indexCount * sizeof(uint32_t));
         return true;
     }
     return false;
@@ -260,10 +229,47 @@ void WgContext::releaseBuffer(WGPUBuffer& buffer)
     }
 }
 
-void WgContext::releaseQueue(WGPUQueue queue)
+void WgContext::releaseQueue(WGPUQueue& queue)
 {
     if (queue) {
         wgpuQueueRelease(queue);
         queue = nullptr;
     }
+}
+
+
+WGPUCommandEncoder WgContext::createCommandEncoder()
+{
+    WGPUCommandEncoderDescriptor commandEncoderDesc{};
+    return wgpuDeviceCreateCommandEncoder(device, &commandEncoderDesc);
+}
+
+
+void WgContext::submitCommandEncoder(WGPUCommandEncoder commandEncoder)
+{
+    const WGPUCommandBufferDescriptor commandBufferDesc{};
+    WGPUCommandBuffer commandsBuffer = wgpuCommandEncoderFinish(commandEncoder, &commandBufferDesc);
+    wgpuQueueSubmit(queue, 1, &commandsBuffer);
+    wgpuCommandBufferRelease(commandsBuffer);
+}
+
+
+void WgContext::releaseCommandEncoder(WGPUCommandEncoder& commandEncoder)
+{
+    if (commandEncoder) {
+        wgpuCommandEncoderRelease(commandEncoder);
+        commandEncoder = nullptr;
+    }
+}
+
+
+void WgContext::submit()
+{
+    wgpuQueueSubmit(queue, 0, nullptr);
+}
+
+
+bool WgContext::invalid()
+{
+    return !instance || !device;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,8 @@
  */
 
 #include <cstring>
-
+#include <memory>
+#include "tvgStr.h"
 #include "tvgGifEncoder.h"
 #include "tvgGifSaver.h"
 
@@ -31,21 +32,16 @@
 
 void GifSaver::run(unsigned tid)
 {
-    auto canvas = tvg::SwCanvas::gen();
+    auto canvas = unique_ptr<SwCanvas>(SwCanvas::gen());
     if (!canvas) return;
-
-    //Do not share the memory pool since this canvas could be running on a thread.
-    canvas->mempool(SwCanvas::Individual);
 
     auto w = static_cast<uint32_t>(vsize[0]);
     auto h = static_cast<uint32_t>(vsize[1]);
 
-    buffer = (uint32_t*)realloc(buffer, sizeof(uint32_t) * w * h);
-    canvas->target(buffer, w, w, h, tvg::SwCanvas::ABGR8888S);
-    canvas->push(cast(bg));
-    bg = nullptr;
-
-    canvas->push(cast(animation->picture()));
+    buffer = tvg::realloc<uint32_t>(buffer, sizeof(uint32_t) * w * h);
+    canvas->target(buffer, w, w, h, ColorSpace::ABGR8888S);
+    canvas->add(bg);
+    canvas->add(animation->picture());
 
     //use the default fps
     if (fps > 60.0f) fps = 60.0f;   // just in case
@@ -65,11 +61,10 @@ void GifSaver::run(unsigned tid)
     auto duration = animation->duration();
 
     for (auto p = 0.0f; p < duration; p += delay) {
-        canvas->clear(false);
         auto frameNo = animation->totalFrame() * (p / duration);
         animation->frame(frameNo);
         canvas->update();
-        if (canvas->draw() == tvg::Result::Success) {
+        if (canvas->draw(true) == tvg::Result::Success) {
             canvas->sync();
         }
         if (!gifWriteFrame(&writer, reinterpret_cast<uint8_t*>(buffer), w, h, uint32_t(delay * 100.0f), transparent)) {
@@ -79,6 +74,11 @@ void GifSaver::run(unsigned tid)
     }
 
     if (!gifEnd(&writer)) TVGERR("GIF_SAVER", "Failed gif encoding");
+
+    if (bg) {
+        bg->unref();
+        bg = nullptr;
+    }
 }
 
 
@@ -96,38 +96,37 @@ bool GifSaver::close()
 {
     this->done();
 
-    delete(bg);
+    if (bg) bg->unref();
     bg = nullptr;
 
     //animation holds the picture, it must be 1 at the bottom.
-    if (animation && PP(animation->picture())->refCnt <= 1) delete(animation);
+    if (animation && animation->picture()->refCnt() <= 1) delete(animation);
     animation = nullptr;
 
-    free(path);
+    tvg::free(path);
     path = nullptr;
 
-    free(buffer);
+    tvg::free(buffer);
     buffer = nullptr;
 
     return true;
 }
 
 
-bool GifSaver::save(TVG_UNUSED Paint* paint, TVG_UNUSED const string& path, TVG_UNUSED bool compress)
+bool GifSaver::save(TVG_UNUSED Paint* paint, TVG_UNUSED Paint* bg, TVG_UNUSED const char* filename, TVG_UNUSED uint32_t quality)
 {
     TVGLOG("GIF_SAVER", "Paint is not supported.");
     return false;
 }
 
 
-bool GifSaver::save(Animation* animation, Paint* bg, const string& path, TVG_UNUSED uint32_t quality, uint32_t fps)
+bool GifSaver::save(Animation* animation, Paint* bg, const char* filename, TVG_UNUSED uint32_t quality, uint32_t fps)
 {
     close();
 
     auto picture = animation->picture();
-    float x, y;
-    x = y = 0;
-    picture->bounds(&x, &y, &vsize[0], &vsize[1], false);
+    auto x = 0.0f, y = 0.0f;
+    picture->bounds(&x, &y, &vsize[0], &vsize[1]);
 
     //cut off the negative space
     if (x < 0) vsize[0] += x;
@@ -138,11 +137,15 @@ bool GifSaver::save(Animation* animation, Paint* bg, const string& path, TVG_UNU
         return false;
     }
 
-    this->path = strdup(path.c_str());
-    if (!this->path) return false;
+    if (!filename) return false;
+    this->path = duplicate(filename);
 
     this->animation = animation;
-    if (bg) this->bg = bg->duplicate();
+
+    if (bg) {
+        bg->ref();
+        this->bg = bg;
+    }
     this->fps = static_cast<float>(fps);
 
     TaskScheduler::request(this);

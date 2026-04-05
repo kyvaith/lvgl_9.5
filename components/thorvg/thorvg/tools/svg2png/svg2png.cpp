@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -126,7 +126,7 @@ public:
             return 1;
         }
 
-        if (canvas->target(buffer, w, w, h, tvg::SwCanvas::ARGB8888S) != tvg::Result::Success) {
+        if (canvas->target(buffer, w, w, h, tvg::ColorSpace::ARGB8888S) != tvg::Result::Success) {
             cout << "Error: Canvas target failure" << endl;
             return 1;
         }
@@ -141,12 +141,12 @@ public:
             shape->appendRect(0, 0, static_cast<float>(w), static_cast<float>(h), 0, 0);
             shape->fill(r, g, b);
 
-            if (canvas->push(std::move(shape)) != tvg::Result::Success) return 1;
+            if (canvas->add(shape) != tvg::Result::Success) return 1;
         }
 
         //Drawing
-        canvas->push(std::move(picture));
-        canvas->draw();
+        canvas->add(picture);
+        canvas->draw(true);
         canvas->sync();
 
         //Build Png
@@ -155,34 +155,29 @@ public:
 
         cout << "Generated PNG file: " << dst << endl;
 
-        canvas->clear(true);
-
         return 0;
     }
 
     void terminate()
     {
-        //Terminate ThorVG Engine
-        tvg::Initializer::term(tvg::CanvasEngine::Sw);
+        tvg::Initializer::term();
         free(buffer);
     }
 
 private:
     void createCanvas()
     {
-        //Canvas Engine
-        tvg::CanvasEngine tvgEngine = tvg::CanvasEngine::Sw;
-
         //Threads Count
         auto threads = thread::hardware_concurrency();
+        if (threads > 0) --threads; 
 
         //Initialize ThorVG Engine
-        if (tvg::Initializer::init(tvgEngine, threads) != tvg::Result::Success) {
+        if (tvg::Initializer::init(threads) != tvg::Result::Success) {
             cout << "Error: Engine is not supported" << endl;
         }
 
         //Create a Canvas
-        canvas = tvg::SwCanvas::gen();
+        canvas = unique_ptr<tvg::SwCanvas>(tvg::SwCanvas::gen());
     }
 
     void createBuffer(int w, int h)
@@ -293,7 +288,7 @@ private:
 private:
     int help()
     {
-        cout << "Usage:\n   svg2png [SVG file] or [SVG folder] [-r resolution] [-b bgColor]\n\nFlags:\n    -r set the output image resolution.\n    -b set the output image background color.\n\nExamples:\n    $ svg2png input.svg\n    $ svg2png input.svg -r 200x200\n    $ svg2png input.svg -r 200x200 -b ff00ff\n    $ svg2png input1.svg input2.svg -r 200x200 -b ff00ff\n    $ svg2png . -r 200x200\n\nNote:\n    In the case, where the width and height in the SVG file determine the size of the image in resolution higher than 8k (7680 x 4320), limiting the resolution to this value is enforced.\n\n";
+        cout << "Usage:\n   tvg-svg2png [SVG file] or [SVG folder] [-r resolution] [-b bgColor]\n\nFlags:\n    -r set the output image resolution.\n    -b set the output image background color.\n\nExamples:\n    $ tvg-svg2png input.svg\n    $ tvg-svg2png input.svg -r 200x200\n    $ tvg-svg2png input.svg -r 200x200 -b ff00ff\n    $ tvg-svg2png input1.svg input2.svg -r 200x200 -b ff00ff\n    $ tvg-svg2png . -r 200x200\n\nNote:\n    In the case, where the width and height in the SVG file determine the size of the image in resolution higher than 8k (7680 x 4320), limiting the resolution to this value is enforced.\n\n";
         return 1;
     }
 

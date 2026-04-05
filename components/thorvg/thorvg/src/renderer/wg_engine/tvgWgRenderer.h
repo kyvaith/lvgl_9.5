@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,78 +23,90 @@
 #ifndef _TVG_WG_RENDERER_H_
 #define _TVG_WG_RENDERER_H_
 
-#include "tvgWgCompositor.h"
+#include "tvgWgRenderTask.h"
 
-class WgRenderer : public RenderMethod
+struct WgRenderer : RenderMethod
 {
-public:
+    //main features
+    bool preUpdate() override;
     RenderData prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper) override;
     RenderData prepare(RenderSurface* surface, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags) override;
+    bool postUpdate() override;
     bool preRender() override;
     bool renderShape(RenderData data) override;
     bool renderImage(RenderData data) override;
     bool postRender() override;
     void dispose(RenderData data) override;
     RenderRegion region(RenderData data) override;
-    RenderRegion viewport() override;
-    bool viewport(const RenderRegion& vp) override;
+    bool bounds(RenderData data, Point* pt4, const Matrix& m) override;
     bool blend(BlendMethod method) override;
     ColorSpace colorSpace() override;
     const RenderSurface* mainSurface() override;
-
     bool clear() override;
     bool sync() override;
+    bool intersectsImage(RenderData data, const RenderRegion& region) override;
+    bool intersectsShape(RenderData data, const RenderRegion& region) override;
+    bool target(WGPUDevice device, WGPUInstance instance, void* target, uint32_t w, uint32_t h, ColorSpace cs, int type = 0);
 
-    bool target(WGPUInstance instance, WGPUSurface surface, uint32_t w, uint32_t h, WGPUDevice device);
-    bool target(WGPUSurface surface, uint32_t w, uint32_t h);
-
+    //composition
     RenderCompositor* target(const RenderRegion& region, ColorSpace cs, CompositionFlag flags) override;
-    bool beginComposite(RenderCompositor* cmp, CompositeMethod method, uint8_t opacity) override;
+    bool beginComposite(RenderCompositor* cmp, MaskMethod method, uint8_t opacity) override;
     bool endComposite(RenderCompositor* cmp) override;
 
-    void prepare(TVG_UNUSED RenderEffect* effect, TVG_UNUSED const Matrix& transform) override;
+    //post effects
+    void prepare(RenderEffect* effect, const Matrix& transform) override;
     bool region(RenderEffect* effect) override;
     bool render(RenderCompositor* cmp, const RenderEffect* effect, bool direct) override;
+    void dispose(RenderEffect* effect) override;
 
-    static WgRenderer* gen();
-    static bool init(uint32_t threads);
+    //partial rendering
+    void damage(RenderData rd, const RenderRegion& region) override;
+    bool partial(bool disable) override;
+
+    static WgRenderer* gen(uint32_t threads);
     static bool term();
-
-    WGPUSurface surface{}; // external handle
 
 private:
     WgRenderer();
     ~WgRenderer();
-    void initialize();
     void release();
     void disposeObjects();
     void releaseSurfaceTexture();
 
-    WGPUSurfaceTexture surfaceTexture{};
-
-    WGPUCommandEncoder mCommandEncoder{};
-    WgRenderDataShapePool mRenderDataShapePool;
+    void clearTargets();
+    bool surfaceConfigure(WGPUSurface surface, WgContext& context, uint32_t width, uint32_t height);
 
     // render tree stacks
-    WgRenderStorage mStorageRoot;
-    Array<WgCompose*> mCompositorStack;
-    Array<WgRenderStorage*> mRenderStorageStack;
-    WgRenderStoragePool mRenderStoragePool;
+    WgRenderTarget mRenderTargetRoot;
+    Array<WgCompose*> mCompositorList;
+    Array<WgRenderTarget*> mRenderTargetStack;
+    Array<WgSceneTask*> mSceneTaskStack;
+    Array<WgRenderTask*> mRenderTaskList;
 
+    // render target pool
+    WgRenderTargetPool mRenderTargetPool;
+
+    // render data paint pools
+    WgRenderDataShapePool mRenderDataShapePool;
+    WgRenderDataPicturePool mRenderDataPicturePool;
+    WgRenderDataEffectParamsPool mRenderDataEffectParamsPool;
+
+    // rendering context
     WgContext mContext;
-    WgPipelines mPipelines;
     WgCompositor mCompositor;
 
+    // rendering states
     RenderSurface mTargetSurface;
     BlendMethod mBlendMethod{};
-    RenderRegion mViewport{};
 
+    // disposable data list
     Array<RenderData> mDisposeRenderDatas{};
     Key mDisposeKey{};
 
-    WGPUAdapter adapter{};
-    WGPUDevice device{};
-    bool gpuOwner{};
+    // gpu handles
+    WGPUTexture targetTexture{}; // external handle
+    WGPUSurfaceTexture surfaceTexture{};
+    WGPUSurface surface{};  // external handle
 };
 
 #endif /* _TVG_WG_RENDERER_H_ */

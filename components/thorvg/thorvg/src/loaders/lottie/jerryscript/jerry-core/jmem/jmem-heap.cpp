@@ -81,10 +81,6 @@ void
 jmem_heap_init (void)
 {
 #if !JERRY_SYSTEM_ALLOCATOR
-#if !JERRY_CPOINTER_32_BIT
-  /* the maximum heap size for 16bit compressed pointers should be 512K */
-  JERRY_ASSERT (((UINT16_MAX + 1) << JMEM_ALIGNMENT_LOG) >= JMEM_HEAP_SIZE);
-#endif /* !JERRY_CPOINTER_32_BIT */
   JERRY_ASSERT ((uintptr_t) JERRY_HEAP_CONTEXT (area) % JMEM_ALIGNMENT == 0);
 
   JERRY_CONTEXT (jmem_heap_limit) = CONFIG_GC_LIMIT;
@@ -285,15 +281,11 @@ jmem_heap_gc_and_alloc_block (const size_t size, /**< required memory size */
 
   jmem_pressure_t pressure = JMEM_PRESSURE_NONE;
 
-#if !JERRY_MEM_GC_BEFORE_EACH_ALLOC
   if (JERRY_CONTEXT (jmem_heap_allocated_size) + size >= JERRY_CONTEXT (jmem_heap_limit))
   {
     pressure = JMEM_PRESSURE_LOW;
     ecma_free_unused_memory (pressure);
   }
-#else /* !JERRY_MEM_GC_BEFORE_EACH_ALLOC */
-  ecma_gc_run ();
-#endif /* JERRY_MEM_GC_BEFORE_EACH_ALLOC */
 
   void *data_space_p = jmem_heap_alloc (size);
 
@@ -359,7 +351,7 @@ jmem_heap_alloc_block_null_on_error (const size_t size) /**< required memory siz
 /**
  * Finds the block in the free block list which precedes the argument block
  *
- * @return pointer to the preceeding block
+ * @return pointer to the preceding block
  */
 static jmem_heap_free_t *
 jmem_heap_find_prev (const jmem_heap_free_t *const block_p) /**< which memory block's predecessor we're looking for */
@@ -539,14 +531,10 @@ jmem_heap_realloc_block (void *ptr, /**< memory region to reallocate */
   void *ret_block_p = NULL;
   const size_t required_size = aligned_new_size - aligned_old_size;
 
-#if !JERRY_MEM_GC_BEFORE_EACH_ALLOC
   if (JERRY_CONTEXT (jmem_heap_allocated_size) + required_size >= JERRY_CONTEXT (jmem_heap_limit))
   {
     ecma_free_unused_memory (JMEM_PRESSURE_LOW);
   }
-#else /* !JERRY_MEM_GC_BEFORE_EACH_ALLOC */
-  ecma_gc_run ();
-#endif /* JERRY_MEM_GC_BEFORE_EACH_ALLOC */
 
   jmem_heap_free_t *prev_p = jmem_heap_find_prev (block_p);
   JMEM_VALGRIND_DEFINED_SPACE (prev_p, sizeof (jmem_heap_free_t));
@@ -660,14 +648,10 @@ jmem_heap_realloc_block (void *ptr, /**< memory region to reallocate */
 #else /* JERRY_SYSTEM_ALLOCATOR */
   const size_t required_size = new_size - old_size;
 
-#if !JERRY_MEM_GC_BEFORE_EACH_ALLOC
   if (JERRY_CONTEXT (jmem_heap_allocated_size) + required_size >= JERRY_CONTEXT (jmem_heap_limit))
   {
     ecma_free_unused_memory (JMEM_PRESSURE_LOW);
   }
-#else /* !JERRY_MEM_GC_BEFORE_EACH_ALLOC */
-  ecma_gc_run ();
-#endif /* JERRY_MEM_GC_BEFORE_EACH_ALLOC */
 
   JERRY_CONTEXT (jmem_heap_allocated_size) += required_size;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,50 +25,15 @@
 
 #include "tvgWgPipelines.h"
 #include "tvgWgGeometry.h"
-
-struct WgMeshData {
-    WGPUBuffer bufferPosition{};
-    WGPUBuffer bufferTexCoord{};
-    WGPUBuffer bufferIndex{};
-    size_t vertexCount{};
-    size_t indexCount{};
-
-    void draw(WgContext& context, WGPURenderPassEncoder renderPassEncoder);
-    void drawFan(WgContext& context, WGPURenderPassEncoder renderPassEncoder);
-    void drawImage(WgContext& context, WGPURenderPassEncoder renderPassEncoder);
-
-    void update(WgContext& context, const WgVertexBuffer& vertexBuffer);
-    void update(WgContext& context, const WgVertexBufferInd& vertexBufferInd);
-    void update(WgContext& context, const Point pmin, const Point pmax);
-    void release(WgContext& context);
-};
-
-class WgMeshDataPool {
-private:
-    Array<WgMeshData*> mPool;
-    Array<WgMeshData*> mList;
-public:
-    WgMeshData* allocate(WgContext& context);
-    void free(WgContext& context, WgMeshData* meshData);
-    void release(WgContext& context);
-};
-
-struct WgMeshDataGroup {
-    static WgMeshDataPool* gMeshDataPool;
-
-    Array<WgMeshData*> meshes{};
-    
-    void append(WgContext& context, const WgVertexBuffer& vertexBuffer);
-    void append(WgContext& context, const WgVertexBufferInd& vertexBufferInd);
-    void append(WgContext& context, const Point pmin, const Point pmax);
-    void release(WgContext& context);
-};
+#include "tvgWgShaderTypes.h"
 
 struct WgImageData {
     WGPUTexture texture{};
     WGPUTextureView textureView{};
+    WGPUBindGroup bindGroup{};
 
-    void update(WgContext& context, RenderSurface* surface);
+    void update(WgContext& context, const RenderSurface* surface);
+    void update(WgContext& context, const Fill* fill);
     void release(WgContext& context);
 };
 
@@ -77,36 +42,31 @@ enum class WgRenderRasterType { Solid = 0, Gradient, Image };
 
 struct WgRenderSettings
 {
-    WGPUBuffer bufferGroupSolid{};
-    WGPUBindGroup bindGroupSolid{};
-    WGPUTexture texGradient{};
-    WGPUTextureView texViewGradient{};
-    WGPUBuffer bufferGroupGradient{};
-    WGPUBuffer bufferGroupTransfromGrad{};
-    WGPUBindGroup bindGroupGradient{};
+    uint32_t bindGroupInd{};
+    WgShaderTypePaintSettings settings;
+    WgImageData gradientData;
     WgRenderSettingsType fillType{};
     WgRenderRasterType rasterType{};
+    float opacityMultiplier = 1.0f;
     bool skip{};
 
-    void update(WgContext& context, const Fill* fill, const uint8_t* color, const RenderUpdateFlag flags);
+    void update(WgContext& context, const tvg::Matrix& transform, tvg::ColorSpace cs, uint8_t opacity);
+    void update(WgContext& context, const Fill* fill);
+    void update(WgContext& context, const RenderColor& c);
     void release(WgContext& context);
 };
 
 struct WgRenderDataPaint
 {
-    WGPUBuffer bufferModelMat{};
-    WGPUBuffer bufferBlendSettings{};
-    WGPUBindGroup bindGroupPaint{};
+    BBox aabb{{},{}};
     RenderRegion viewport{};
-    RenderRegion aabb{};
-    float opacity{};
     Array<WgRenderDataPaint*> clips;
+    Matrix transform;
 
     virtual ~WgRenderDataPaint() {};
     virtual void release(WgContext& context);
     virtual Type type() { return Type::Undefined; };
 
-    void update(WgContext& context, const tvg::Matrix& transform, tvg::ColorSpace cs, uint8_t opacity);
     void updateClips(tvg::Array<tvg::RenderData> &clips);
 };
 
@@ -114,23 +74,21 @@ struct WgRenderDataShape: public WgRenderDataPaint
 {
     WgRenderSettings renderSettingsShape{};
     WgRenderSettings renderSettingsStroke{};
-    WgMeshDataGroup meshGroupShapes{};
-    WgMeshDataGroup meshGroupShapesBBox{};
-    WgMeshData meshDataBBox{};
-    WgMeshDataGroup meshGroupStrokes{};
-    WgMeshDataGroup meshGroupStrokesBBox{};
-    Point pMin{};
-    Point pMax{};
+    WgMeshData meshBBox{};
+    WgMeshData meshShape{};
+    WgMeshData meshShapeBBox{};
+    WgMeshData meshStrokes{};
+    WgMeshData meshStrokesBBox{};
     bool strokeFirst{};
     FillRule fillRule{};
+    bool convex{};
+    BBox bbox;
 
-    void appendShape(WgContext context, const WgVertexBuffer& vertexBuffer);
-    void appendStroke(WgContext context, const WgVertexBufferInd& vertexBufferInd);
-    void updateBBox(Point pmin, Point pmax);
-    void updateAABB(const Matrix& tr);
-    void updateMeshes(WgContext& context, const RenderShape& rshape, const Matrix& tr);
-    void proceedStrokes(WgContext context, const RenderStroke* rstroke, float tbeg, float tend, const WgVertexBuffer& buff);
-    void releaseMeshes(WgContext& context);
+    void updateBBox(BBox bb);
+    void updateAABB(const Matrix& matrix);
+    void updateVisibility(const RenderShape& rshape, uint8_t opacity);
+    void updateMeshes(const RenderShape& rshape, RenderUpdateFlag flag, const Matrix& matrix);
+    void releaseMeshes();
     void release(WgContext& context) override;
     Type type() override { return Type::Shape; };
 };
@@ -141,18 +99,135 @@ private:
     Array<WgRenderDataShape*> mList;
 public:
     WgRenderDataShape* allocate(WgContext& context);
-    void free(WgContext& context, WgRenderDataShape* dataShape);
+    void free(WgContext& context, WgRenderDataShape* renderData);
     void release(WgContext& context);
 };
 
 struct WgRenderDataPicture: public WgRenderDataPaint
 {
-    WGPUBindGroup bindGroupPicture{};
+    WgRenderSettings renderSettings{};
     WgImageData imageData{};
     WgMeshData meshData{};
 
+    void updateSurface(WgContext& context, const RenderSurface* surface);
     void release(WgContext& context) override;
     Type type() override { return Type::Picture; };
+};
+
+class WgRenderDataPicturePool {
+private:
+    Array<WgRenderDataPicture*> mPool;
+    Array<WgRenderDataPicture*> mList;
+public:
+    WgRenderDataPicture* allocate(WgContext& context);
+    void free(WgContext& context, WgRenderDataPicture* dataPicture);
+    void release(WgContext& context);
+};
+
+// gaussian blur, drop shadow, fill, tint, tritone
+#define WG_GAUSSIAN_MAX_LEVEL 3
+struct WgRenderDataEffectParams
+{
+    WGPUBindGroup bindGroupParams{};
+    WGPUBuffer bufferParams{};
+    uint32_t extend{};
+    Point offset{};
+
+    void update(WgContext& context, WgShaderTypeEffectParams& effectParams);
+    void update(WgContext& context, RenderEffectGaussianBlur* gaussian, const Matrix& transform);
+    void update(WgContext& context, RenderEffectDropShadow* dropShadow, const Matrix& transform);
+    void update(WgContext& context, RenderEffectFill* fill);
+    void update(WgContext& context, RenderEffectTint* tint);
+    void update(WgContext& context, RenderEffectTritone* tritone);
+    void release(WgContext& context);
+};
+
+// effect params pool
+class WgRenderDataEffectParamsPool {
+private:
+    // pool contains all created but unused render data for params
+    Array<WgRenderDataEffectParams*> mPool;
+    // list contains all created render data for params
+    // to ensure that all created instances will be released
+    Array<WgRenderDataEffectParams*> mList;
+public:
+    WgRenderDataEffectParams* allocate(WgContext& context);
+    void free(WgContext& context, WgRenderDataEffectParams* renderData);
+    void release(WgContext& context);
+};
+
+class WgStageBufferGeometry {
+private:
+    Array<uint8_t> vbuffer;
+    Array<uint8_t> ibuffer;
+public:
+    WGPUBuffer vbuffer_gpu{};
+    WGPUBuffer ibuffer_gpu{};
+
+    void append(WgMeshData* meshData);
+    void append(WgRenderDataShape* renderDataShape);
+    void append(WgRenderDataPicture* renderDataPicture);
+    void initialize(WgContext& context){};
+    void release(WgContext& context);
+    void clear();
+    void flush(WgContext& context);
+};
+
+// typed uniform stage buffer with related bind groups handling
+template<typename T>
+class WgStageBufferUniform {
+private:
+    Array<T> ubuffer;
+    WGPUBuffer ubuffer_gpu{};
+    Array<WGPUBindGroup> bbuffer;
+public:
+    // append uniform data to cpu staged buffer and return related bind group index
+    uint32_t append(const T& value) {
+        ubuffer.push(value);
+        return ubuffer.count - 1;
+    }
+
+    void flush(WgContext& context) {
+        // flush data to gpu buffer from cpu memory including reserved data to prevent future gpu buffer reallocations
+        bool bufferChanged = context.allocateBufferUniform(ubuffer_gpu, (void*)ubuffer.data, ubuffer.reserved*sizeof(T));
+        // if gpu buffer handle was changed we must to remove all created binding groups
+        if (bufferChanged) releaseBindGroups(context);
+        // allocate bind groups for all new data items
+        for (uint32_t i = bbuffer.count; i < ubuffer.count; i++)
+            bbuffer.push(context.layouts.createBindGroupBuffer1Un(ubuffer_gpu, i*sizeof(T), sizeof(T)));
+        assert(bbuffer.count >= ubuffer.count);
+    }
+
+    // please, use index that was returned from append method
+    WGPUBindGroup operator[](const uint32_t index) const {
+        return bbuffer[index];
+    }
+
+    void clear() {
+        ubuffer.clear();
+    }
+
+    void release(WgContext& context) {
+        context.releaseBuffer(ubuffer_gpu);
+        releaseBindGroups(context);
+    }
+
+    void releaseBindGroups(WgContext& context) {
+        ARRAY_FOREACH(p, bbuffer)
+            context.layouts.releaseBindGroup(*p);
+        bbuffer.clear();
+    }
+};
+
+
+struct WgIntersector
+{
+    bool isPointInTriangle(const Point& p, const Point& a, const Point& b, const Point& c);
+    bool isPointInTris(const Point& p, const WgMeshData& mesh, const Matrix& tr);
+    bool isPointInMesh(const Point& p, const WgMeshData& mesh, const Matrix& tr);
+    bool intersectClips(const Point& pt, const Array<WgRenderDataPaint*>& clips);
+    bool intersectShape(const RenderRegion region, const WgRenderDataShape* shape);
+    bool intersectImage(const RenderRegion region, const WgRenderDataPicture* image);
 };
 
 #endif // _TVG_WG_RENDER_DATA_H_

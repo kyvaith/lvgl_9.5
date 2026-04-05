@@ -82,13 +82,6 @@ opfunc_set_data_property (ecma_object_t *object_p, /**< object */
 
     if (!(*property_p & ECMA_PROPERTY_FLAG_DATA))
     {
-#if JERRY_CPOINTER_32_BIT
-      ecma_getter_setter_pointers_t *getter_setter_pair_p;
-      getter_setter_pair_p = ECMA_GET_NON_NULL_POINTER (ecma_getter_setter_pointers_t,
-                                                        ECMA_PROPERTY_VALUE_PTR (property_p)->getter_setter_pair_cp);
-      jmem_pools_free (getter_setter_pair_p, sizeof (ecma_getter_setter_pointers_t));
-#endif /* JERRY_CPOINTER_32_BIT */
-
       *property_p |= ECMA_PROPERTY_FLAG_DATA | ECMA_PROPERTY_FLAG_WRITABLE;
       prop_value_p->value = ecma_copy_value_if_not_object (value);
       return;
@@ -143,22 +136,11 @@ opfunc_set_accessor (bool is_getter, /**< is getter accessor */
 
     if (*property_p & ECMA_PROPERTY_FLAG_DATA)
     {
-#if JERRY_CPOINTER_32_BIT
-      ecma_getter_setter_pointers_t *getter_setter_pair_p;
-      getter_setter_pair_p = jmem_pools_alloc (sizeof (ecma_getter_setter_pointers_t));
-#endif /* JERRY_CPOINTER_32_BIT */
-
       ecma_free_value_if_not_object (prop_value_p->value);
       *property_p = (uint8_t) (*property_p & ~(ECMA_PROPERTY_FLAG_DATA | ECMA_PROPERTY_FLAG_WRITABLE));
 
-#if JERRY_CPOINTER_32_BIT
-      ECMA_SET_POINTER (getter_setter_pair_p->getter_cp, getter_func_p);
-      ECMA_SET_POINTER (getter_setter_pair_p->setter_cp, setter_func_p);
-      ECMA_SET_NON_NULL_POINTER (prop_value_p->getter_setter_pair_cp, getter_setter_pair_p);
-#else /* !JERRY_CPOINTER_32_BIT */
       ECMA_SET_POINTER (prop_value_p->getter_setter_pair.getter_cp, getter_func_p);
       ECMA_SET_POINTER (prop_value_p->getter_setter_pair.setter_cp, setter_func_p);
-#endif /* JERRY_CPOINTER_32_BIT */
       return;
     }
 
@@ -367,13 +349,7 @@ opfunc_append_to_spread_array (ecma_value_t *stack_top_p, /**< current stack top
             break;
           }
 
-          ecma_value_t put_comp;
-          put_comp = ecma_builtin_helper_def_prop_by_index (array_obj_p,
-                                                            idx++,
-                                                            value,
-                                                            ECMA_PROPERTY_CONFIGURABLE_ENUMERABLE_WRITABLE);
-
-          JERRY_ASSERT (ecma_is_value_true (put_comp));
+          ecma_builtin_helper_def_prop_by_index (array_obj_p, idx++, value, ECMA_PROPERTY_CONFIGURABLE_ENUMERABLE_WRITABLE);
           ecma_free_value (value);
         }
       }
@@ -394,11 +370,7 @@ opfunc_append_to_spread_array (ecma_value_t *stack_top_p, /**< current stack top
     }
     else
     {
-      ecma_value_t put_comp = ecma_builtin_helper_def_prop_by_index (array_obj_p,
-                                                                     idx,
-                                                                     stack_top_p[i],
-                                                                     ECMA_PROPERTY_CONFIGURABLE_ENUMERABLE_WRITABLE);
-      JERRY_ASSERT (ecma_is_value_true (put_comp));
+      ecma_builtin_helper_def_prop_by_index (array_obj_p, idx, stack_top_p[i], ECMA_PROPERTY_CONFIGURABLE_ENUMERABLE_WRITABLE);
       ecma_free_value (stack_top_p[i]);
     }
   }
@@ -1954,8 +1926,7 @@ opfunc_finalize_class (vm_frame_ctx_t *frame_ctx_p, /**< frame context */
     opfunc_pop_lexical_environment (frame_ctx_p);
   }
 
-  ecma_value_t result = opfunc_private_method_or_accessor_add (ctor_p, ctor_p, ECMA_PRIVATE_PROPERTY_STATIC_FLAG);
-  JERRY_ASSERT (ecma_is_value_undefined (result));
+  opfunc_private_method_or_accessor_add (ctor_p, ctor_p, ECMA_PRIVATE_PROPERTY_STATIC_FLAG);
 
   stack_top_p[-3] = stack_top_p[-2];
   *vm_stack_top_p -= 2;

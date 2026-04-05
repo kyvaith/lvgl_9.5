@@ -12,15 +12,19 @@ menu "ThorVG Support Options"
         help
             Enable ThorVG threading support. This option can be disabled if ThorVG is only used from one FreeRTOS task.
 
+    config THORVG_LOTTIE_EXPRESSIONS_SUPPORT
+        bool "Enable Lottie expressions (JerryScript)"
+        default n
+        depends on THORVG_LOTTIE_LOADER_SUPPORT
+        help
+            Enable JavaScript expression support in Lottie animations via JerryScript engine.
+            WARNING: adds ~1.5MB to the binary. Only enable if your Lottie files use expressions.
+
     menu "Loaders Support"
 
         config THORVG_LOTTIE_LOADER_SUPPORT
             bool "Enable Lottie loader support"
             default y
-
-        config THORVG_TVG_LOADER_SUPPORT
-            bool "Enable tvg loader support"
-            default n
 
         config THORVG_SVG_LOADER_SUPPORT
             bool "Enable svg loader support"

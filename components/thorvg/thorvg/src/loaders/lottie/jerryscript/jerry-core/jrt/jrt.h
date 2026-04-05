@@ -93,10 +93,6 @@ void JERRY_ATTR_NORETURN jerry_unreachable (const char *file, const char *functi
 #define JERRY_ASSERT(x) \
   do                    \
   {                     \
-    if (false)          \
-    {                   \
-      JERRY_UNUSED (x); \
-    }                   \
   } while (0)
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -122,12 +118,6 @@ void jerry_jrt_set_log_level (jerry_log_level_t level);
 /*
  * Logging
  */
-#if JERRY_LOGGING
-#define JERRY_ERROR_MSG(...)   jerry_log (JERRY_LOG_LEVEL_ERROR, __VA_ARGS__)
-#define JERRY_WARNING_MSG(...) jerry_log (JERRY_LOG_LEVEL_WARNING, __VA_ARGS__)
-#define JERRY_DEBUG_MSG(...)   jerry_log (JERRY_LOG_LEVEL_DEBUG, __VA_ARGS__)
-#define JERRY_TRACE_MSG(...)   jerry_log (JERRY_LOG_LEVEL_TRACE, __VA_ARGS__)
-#else /* !JERRY_LOGGING */
 #define JERRY_ERROR_MSG(...)          \
   do                                  \
   {                                   \
@@ -160,7 +150,6 @@ void jerry_jrt_set_log_level (jerry_log_level_t level);
       JERRY_UNUSED_ALL (__VA_ARGS__); \
     }                                 \
   } while (0)
-#endif /* JERRY_LOGGING */
 
 /**
  * Size of struct member

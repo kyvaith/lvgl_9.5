@@ -7,21 +7,26 @@ source_file = [
     'tvgWgRenderData.h',
     'tvgWgRenderer.h',
     'tvgWgRenderTarget.h',
+    'tvgWgRenderTask.h',
     'tvgWgShaderSrc.h',
     'tvgWgShaderTypes.h',
+    'tvgWgTessellator.h',
     'tvgWgBindGroups.cpp',
     'tvgWgCommon.cpp',
     'tvgWgCompositor.cpp',
+    'tvgWgGeometry.cpp',
     'tvgWgPipelines.cpp',
     'tvgWgRenderData.cpp',
     'tvgWgRenderer.cpp',
     'tvgWgRenderTarget.cpp',
+    'tvgWgRenderTask.cpp',
     'tvgWgShaderSrc.cpp',
-    'tvgWgShaderTypes.cpp'
+    'tvgWgShaderTypes.cpp',
+    'tvgWgTessellator.cpp'
 ]
 
 wgpu_dep = []
-if not get_option('bindings').contains('wasm_beta')
+if host_machine.system() != 'emscripten'
     wgpu_dep = dependency('wgpu_native')
 endif
 

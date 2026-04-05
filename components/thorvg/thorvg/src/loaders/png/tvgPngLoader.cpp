@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2021 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +28,6 @@
 /************************************************************************/
 /* Internal Class Implementation                                        */
 /************************************************************************/
-
 
 void PngLoader::run(unsigned tid)
 {
@@ -63,57 +62,38 @@ PngLoader::PngLoader() : ImageLoader(FileType::Png)
 PngLoader::~PngLoader()
 {
     done();
-    if (freeData) free(data);
-    free(surface.buf8);
+    if (freeData) tvg::free(data);
+    tvg::free(surface.buf8);
     lodepng_state_cleanup(&state);
 }
 
 
-bool PngLoader::open(const string& path)
+bool PngLoader::open(const char* path)
 {
 #ifdef THORVG_FILE_IO_SUPPORT
-    auto pngFile = fopen(path.c_str(), "rb");
-    if (!pngFile) return false;
-
-    auto ret = false;
-
-    //determine size
-    if (fseek(pngFile, 0, SEEK_END) < 0) goto finalize;
-    if (((size = ftell(pngFile)) < 1)) goto finalize;
-    if (fseek(pngFile, 0, SEEK_SET)) goto finalize;
-
-    data = (unsigned char *) malloc(size);
-    if (!data) goto finalize;
-
-    freeData = true;
-
-    if (fread(data, size, 1, pngFile) < 1) goto finalize;
+    if (!(data = (unsigned char*)LoadModule::open(path, size))) return false;
 
     lodepng_state_init(&state);
 
     unsigned int width, height;
-    if (lodepng_inspect(&width, &height, &state, data, size) > 0) goto finalize;
-
+    if (lodepng_inspect(&width, &height, &state, data, size) > 0) return false;
     w = static_cast<float>(width);
     h = static_cast<float>(height);
-    ret = true;
-
-finalize:
-    fclose(pngFile);
-    return ret;
+    freeData = true;
+    return true;
 #else
     return false;
 #endif
 }
 
 
-bool PngLoader::open(const char* data, uint32_t size, bool copy)
+bool PngLoader::open(const char* data, uint32_t size, TVG_UNUSED const char* rpath, bool copy)
 {
     unsigned int width, height;
     if (lodepng_inspect(&width, &height, &state, (unsigned char*)(data), size) > 0) return false;
 
     if (copy) {
-        this->data = (unsigned char *) malloc(size);
+        this->data = tvg::malloc<unsigned char>(size);
         if (!this->data) return false;
         memcpy((unsigned char *)this->data, data, size);
         freeData = true;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,12 +26,14 @@
 #include "tvgWgPipelines.h"
 #include "tvgRender.h"
 
-struct WgRenderStorage {
+struct WgRenderTarget {
     WGPUTexture texture{};
+    WGPUTexture textureMS{};
     WGPUTextureView texView{};
+    WGPUTextureView texViewMS{};
     WGPUBindGroup bindGroupRead{};
     WGPUBindGroup bindGroupWrite{};
-    WGPUBindGroup bindGroupTexure{};
+    WGPUBindGroup bindGroupTexture{};
     uint32_t width{};
     uint32_t height{};
 
@@ -40,15 +42,15 @@ struct WgRenderStorage {
 };
 
 
-class WgRenderStoragePool {
+class WgRenderTargetPool {
 private:
-    Array<WgRenderStorage*> list;
-    Array<WgRenderStorage*> pool;
+    Array<WgRenderTarget*> list;
+    Array<WgRenderTarget*> pool;
     uint32_t width{};
     uint32_t height{};
 public:
-    WgRenderStorage* allocate(WgContext& context);
-    void free(WgContext& context, WgRenderStorage* renderTarget);
+    WgRenderTarget* allocate(WgContext& context);
+    void free(WgContext& context, WgRenderTarget* renderTarget);
 
     void initialize(WgContext& context, uint32_t width, uint32_t height);
     void release(WgContext& context);

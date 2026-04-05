@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +23,6 @@
 #ifndef _TVG_GL_RENDER_PASS_H_
 #define _TVG_GL_RENDER_PASS_H_
 
-#include <memory>
-#include <vector>
-
 #include "tvgGlCommon.h"
 #include "tvgGlRenderTask.h"
 #include "tvgGlRenderTarget.h"
@@ -44,17 +41,17 @@ public:
 
     void addRenderTask(GlRenderTask* task);
 
-    GLuint getFboId() { return mFbo->getFboId(); }
+    GLuint getFboId() { return mFbo->fbo; }
 
-    GLuint getTextureId() { return mFbo->getColorTexture(); }
+    GLuint getTextureId() { return mFbo->colorTex; }
 
-    const RenderRegion& getViewport() const { return mFbo->getViewport(); }
+    const RenderRegion& getViewport() const { return mFbo->viewport; }
 
-    uint32_t getFboWidth() const { return mFbo->getWidth(); }
+    uint32_t getFboWidth() const { return mFbo->width; }
 
-    uint32_t getFboHeight() const { return mFbo->getHeight(); }
+    uint32_t getFboHeight() const { return mFbo->height; }
 
-    void getMatrix(float dst[16], const Matrix& matrix) const;
+    const Matrix& getViewMatrix() const { return mViewMatrix; }
 
     template <class T>
     T* endRenderPass(GlProgram* program, GLuint targetFbo) {
@@ -65,10 +62,7 @@ public:
         }
 
         auto task = new T(program, targetFbo, mFbo, std::move(mTasks));
-
-        const auto& vp = mFbo->getViewport();
-
-        task->setRenderSize(static_cast<uint32_t>(vp.w), static_cast<uint32_t>(vp.h));
+        task->setRenderSize(mFbo->viewport.w(),  mFbo->viewport.h());
 
         return task;
     }
@@ -82,6 +76,7 @@ private:
     GlRenderTarget* mFbo;
     Array<GlRenderTask*> mTasks = {};
     int32_t mDrawDepth = 0;
+    Matrix mViewMatrix = {};
 };
 
 

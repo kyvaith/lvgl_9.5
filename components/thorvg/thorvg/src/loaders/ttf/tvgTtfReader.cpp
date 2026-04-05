@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,17 +20,6 @@
  * SOFTWARE.
  */
 
-
-#ifdef _WIN32
-    #include <malloc.h>
-#elif defined(__linux__) || defined(__ZEPHYR__)
-    #include <alloca.h>
-#else
-    #include <stdlib.h>
-#endif
-
-#include "tvgMath.h"
-#include "tvgShape.h"
 #include "tvgTtfReader.h"
 
 /************************************************************************/
@@ -61,6 +50,12 @@ static inline int16_t _i16(uint8_t* data, uint32_t offset)
 static inline uint8_t _u8(uint8_t* data, uint32_t offset)
 {
     return *(data + offset);
+}
+
+
+static inline int8_t _i8(uint8_t* data, uint32_t offset)
+{
+    return (int8_t) _u8(data, offset);
 }
 
 
@@ -324,7 +319,8 @@ bool TtfReader::header()
 
     metrics.hhea.ascent = _i16(data, hhea + 4);
     metrics.hhea.descent = _i16(data, hhea + 6);
-    metrics.hhea.lineGap = _i16(data, hhea + 8);
+    metrics.hhea.linegap = _i16(data, hhea + 8);
+    metrics.hhea.advance = metrics.hhea.ascent - metrics.hhea.descent + metrics.hhea.linegap;
     metrics.numHmtx = _u16(data, hhea + 34);
 
     //kerning
@@ -386,71 +382,69 @@ uint32_t TtfReader::glyph(uint32_t codepoint)
 }
 
 
-uint32_t TtfReader::glyph(uint32_t codepoint, TtfGlyphMetrics& gmetrics)
+uint32_t TtfReader::glyph(uint32_t codepoint, TtfGlyphMetrics* tgm)
 {
-    auto glyph = this->glyph(codepoint);
-    if (glyph == INVALID_GLYPH || !glyphMetrics(glyph, gmetrics)) {
-        TVGERR("TTF", "invalid glyph id, codepoint(0x%x)", codepoint);
-        return INVALID_GLYPH;
-    }
-    return glyph;
+    tgm->idx = glyph(codepoint);
+    if (tgm->idx == INVALID_GLYPH) return 0;
+    return glyphMetrics(*tgm);
 }
 
-bool TtfReader::glyphMetrics(uint32_t glyphIndex, TtfGlyphMetrics& gmetrics)
+
+uint32_t TtfReader::glyphMetrics(TtfGlyph& glyph)
 {
     //horizontal metrics
     auto hmtx = this->hmtx.load();
     if (hmtx == 0) this->hmtx = hmtx = table("hmtx");
 
     //glyph is inside long metrics segment.
-    if (glyphIndex < metrics.numHmtx) {
-        auto offset = hmtx + 4 * glyphIndex;
-        if (!validate(offset, 4)) return false;
-        gmetrics.advanceWidth = _u16(data, offset);
-        gmetrics.leftSideBearing = _i16(data, offset + 2);
+    if (glyph.idx < metrics.numHmtx) {
+        auto offset = hmtx + 4 * glyph.idx;
+        if (!validate(offset, 4)) return 0;
+        glyph.advance = _u16(data, offset);
+        glyph.lsb = _i16(data, offset + 2);
     /* glyph is inside short metrics segment. */
     } else {
         auto boundary = hmtx + 4U * (uint32_t) metrics.numHmtx;
-        if (boundary < 4) return false;
+        if (boundary < 4) return 0;
 
         auto offset = boundary - 4;
-        if (!validate(offset, 4)) return false;
-        gmetrics.advanceWidth = _u16(data, offset);
-        offset = boundary + 2 * (glyphIndex - metrics.numHmtx);
-        if (!validate(offset, 2)) return false;
-        gmetrics.leftSideBearing = _i16(data, offset);
+        if (!validate(offset, 4)) return 0;
+        glyph.advance = _u16(data, offset);
+        offset = boundary + 2 * (glyph.idx - metrics.numHmtx);
+        if (!validate(offset, 2)) return 0;
+        glyph.lsb = _i16(data, offset);
     }
 
-    gmetrics.outline = outlineOffset(glyphIndex);
+    auto glyphOffset = outlineOffset(glyph.idx);
     // glyph without outline
-    if (gmetrics.outline == 0) {
-        gmetrics.minw = gmetrics.minh = gmetrics.yOffset = 0;
-        return true;
+    if (glyphOffset == 0) {
+        glyph.y = glyph.w = glyph.h = 0.0f;
+        return 0;
     }
-    if (!validate(gmetrics.outline, 10)) return false;
+    if (!validate(glyphOffset, 10)) return 0;
 
     //read the bounding box from the font file verbatim.
     float bbox[4];
-    bbox[0] = static_cast<float>(_i16(data, gmetrics.outline + 2));
-    bbox[1] = static_cast<float>(_i16(data, gmetrics.outline + 4));
-    bbox[2] = static_cast<float>(_i16(data, gmetrics.outline + 6));
-    bbox[3] = static_cast<float>(_i16(data, gmetrics.outline + 8));
+    bbox[0] = static_cast<float>(_i16(data, glyphOffset + 2));
+    bbox[1] = static_cast<float>(_i16(data, glyphOffset + 4));
+    bbox[2] = static_cast<float>(_i16(data, glyphOffset + 6));
+    bbox[3] = static_cast<float>(_i16(data, glyphOffset + 8));
 
-    if (bbox[2] <= bbox[0] || bbox[3] <= bbox[1]) return false;
+    glyph.w = bbox[2] - bbox[0] + 1;
+    glyph.h = bbox[3] - bbox[1] + 1;
+    glyph.y = bbox[3];
 
-    gmetrics.minw = bbox[2] - bbox[0] + 1;
-    gmetrics.minh = bbox[3] - bbox[1] + 1;
-    gmetrics.yOffset = bbox[3];
-
-    return true;
+    return glyphOffset;
 }
 
-bool TtfReader::convert(Shape* shape, TtfGlyphMetrics& gmetrics, const Point& offset, const Point& kerning, uint16_t componentDepth)
+
+bool TtfReader::convert(RenderPath& path, TtfGlyph& glyph, uint32_t glyphOffset, const Point& offset, uint16_t depth)
 {
     #define ON_CURVE 0x01
 
-    if (!gmetrics.outline) return true;
-    auto outlineCnt = _i16(data, gmetrics.outline);
+    if (glyphOffset == 0) return true;
+
+    auto outlineCnt = _i16(data, glyphOffset);
     if (outlineCnt == 0) return false;
     if (outlineCnt < 0) {
         uint16_t maxComponentDepth = 1U;
@@ -459,16 +453,16 @@ bool TtfReader::convert(Shape* shape, TtfGlyphMetrics& gmetrics, const Point& of
         if (validate(maxp, 32) && _u32(data, maxp) >= 0x00010000U) { // >= version 1.0
             maxComponentDepth = _u16(data, maxp + 30);
         }
-        if (componentDepth > maxComponentDepth) return false;
-        return convertComposite(shape, gmetrics, offset, kerning, componentDepth + 1);
+        if (depth > maxComponentDepth) return false;
+        return convertComposite(path, glyph, glyphOffset, offset, depth + 1);
     }
     auto cntrsCnt = (uint32_t) outlineCnt;
-
-    auto outline = gmetrics.outline + 10;
+    auto outline = glyphOffset + 10;
     if (!validate(outline, cntrsCnt * 2 + 2)) return false;
 
+    auto ret = false;
     auto ptsCnt = _u16(data, outline + (cntrsCnt - 1) * 2) + 1;
-    auto endPts = (size_t*)alloca(cntrsCnt * sizeof(size_t));  //the index of the contour points.
+    auto endPts = tvg::malloc<size_t>(cntrsCnt * sizeof(size_t));  //the index of the contour points.
 
     for (uint32_t i = 0; i < cntrsCnt; ++i) {
         endPts[i] = (uint32_t) _u16(data, outline);
@@ -476,66 +470,55 @@ bool TtfReader::convert(Shape* shape, TtfGlyphMetrics& gmetrics, const Point& of
     }
     outline += 2U + _u16(data, outline);
 
-    auto flags = (uint8_t*)alloca(ptsCnt * sizeof(uint8_t));
-    if (!this->flags(&outline, flags, ptsCnt)) return false;
-
-    auto pts = (Point*)alloca(ptsCnt * sizeof(Point));
-    if (!this->points(outline, flags, pts, ptsCnt, offset + kerning)) return false;
-
-    //generate tvg paths.
-    auto& pathCmds = P(shape)->rs.path.cmds;
-    auto& pathPts = P(shape)->rs.path.pts;
-    pathCmds.reserve(ptsCnt);
-    pathPts.reserve(ptsCnt);
-
-    uint32_t begin = 0;
-
-    for (uint32_t i = 0; i < cntrsCnt; ++i) {
-        //contour must start with move to
-        bool offCurve = !(flags[begin] & ON_CURVE);
-        Point ptsBegin = offCurve ? (pts[begin] + pts[endPts[i]]) * 0.5f : pts[begin];
-        pathCmds.push(PathCommand::MoveTo);
-        pathPts.push(ptsBegin);
-
-        auto cnt = endPts[i] - begin + 1;
-        for (uint32_t x = 1; x < cnt; ++x) {
-            if (flags[begin + x] & ON_CURVE) {
-                if (offCurve) {
-                    pathCmds.push(PathCommand::CubicTo);
-                    pathPts.push(pathPts.last() + (2.0f/3.0f) * (pts[begin + x - 1] - pathPts.last()));
-                    pathPts.push(pts[begin + x] + (2.0f/3.0f) * (pts[begin + x - 1] - pts[begin + x]));
-                    pathPts.push(pts[begin + x]);
-                    offCurve = false;
-                } else {
-                    pathCmds.push(PathCommand::LineTo);
-                    pathPts.push(pts[begin + x]);
+    auto flags = tvg::malloc<uint8_t>(ptsCnt * sizeof(uint8_t));
+    if (this->flags(&outline, flags, ptsCnt)) {
+        auto pts = tvg::malloc<Point>(ptsCnt * sizeof(Point));
+        if (this->points(outline, flags, pts, ptsCnt, offset)) {
+            //generate tvg paths
+            path.cmds.reserve(ptsCnt);
+            path.pts.reserve(ptsCnt);
+            uint32_t begin = 0;
+            for (uint32_t i = 0; i < cntrsCnt; ++i) {
+                //contour must start with move to
+                auto offCurve = !(flags[begin] & ON_CURVE);
+                auto ptsBegin = offCurve ? (pts[begin] + pts[endPts[i]]) * 0.5f : pts[begin];
+                path.moveTo(ptsBegin);
+                auto cnt = endPts[i] - begin + 1;
+                for (uint32_t x = 1; x < cnt; ++x) {
+                    if (flags[begin + x] & ON_CURVE) {
+                        if (offCurve) {
+                            path.cubicTo(path.pts.last() + (2.0f/3.0f) * (pts[begin + x - 1] - path.pts.last()), pts[begin + x] + (2.0f/3.0f) * (pts[begin + x - 1] - pts[begin + x]), pts[begin + x]);
+                            offCurve = false;
+                        } else {
+                            path.lineTo(pts[begin + x]);
+                        }
+                    } else {
+                        if (offCurve) {
+                            auto end = (pts[begin + x] + pts[begin + x - 1]) * 0.5f;
+                            path.cubicTo(path.pts.last() + (2.0f/3.0f) * (pts[begin + x - 1] - path.pts.last()), end + (2.0f/3.0f) * (pts[begin + x - 1] - end), end);
+                        } else {
+                            offCurve = true;
+                        }
+                    }
                 }
-            } else {
                 if (offCurve) {
-                    pathCmds.push(PathCommand::CubicTo);
-                    auto end = (pts[begin + x] + pts[begin + x - 1]) * 0.5f;
-                    pathPts.push(pathPts.last() + (2.0f/3.0f) * (pts[begin + x - 1] - pathPts.last()));
-                    pathPts.push(end + (2.0f/3.0f) * (pts[begin + x - 1] - end));
-                    pathPts.push(end);
-                } else {
-                    offCurve = true;
+                    path.cubicTo(path.pts.last() + (2.0f/3.0f) * (pts[begin + cnt - 1] - path.pts.last()), ptsBegin + (2.0f/3.0f) * (pts[begin + cnt - 1] - ptsBegin), ptsBegin);
                 }
+                //contour must end with close
+                path.close();
+                begin = endPts[i] + 1;
             }
+            ret = true;
         }
-        if (offCurve) {
-            pathCmds.push(PathCommand::CubicTo);
-            pathPts.push(pathPts.last() + (2.0f/3.0f) * (pts[begin + cnt - 1] - pathPts.last()));
-            pathPts.push(ptsBegin + (2.0f/3.0f) * (pts[begin + cnt - 1] - ptsBegin));
-            pathPts.push(ptsBegin);
-        }
-        //contour must end with close
-        pathCmds.push(PathCommand::Close);
-        begin = endPts[i] + 1;
+        tvg::free(pts);
     }
-    return true;
+    tvg::free(flags);
+    tvg::free(endPts);
+    return ret;
 }
 
-bool TtfReader::convertComposite(Shape* shape, TtfGlyphMetrics& gmetrics, const Point& offset, const Point& kerning, uint16_t componentDepth)
+
+bool TtfReader::convertComposite(RenderPath& path, TtfGlyph& glyph, uint32_t glyphOffset, const Point& offset, uint16_t depth)
 {
     #define ARG_1_AND_2_ARE_WORDS 0x0001
     #define ARGS_ARE_XY_VALUES 0x0002
@@ -544,36 +527,25 @@ bool TtfReader::convertComposite(Shape* shape, TtfGlyphMetrics& gmetrics, const 
     #define WE_HAVE_AN_X_AND_Y_SCALE 0x0040
     #define WE_HAVE_A_TWO_BY_TWO 0x0080
 
-    TtfGlyphMetrics componentGmetrics;
-    Point componentOffset;
-    uint16_t flags, glyphIndex;
-    uint32_t pointer = gmetrics.outline + 10;
+    TtfGlyph compGlyph;
+    Point compOffset;
+    uint16_t flags;
+    auto pointer = glyphOffset + 10;
     do {
         if (!validate(pointer, 4)) return false;
         flags = _u16(data, pointer);
-        glyphIndex = _u16(data, pointer + 2U);
+        compGlyph.idx = _u16(data, pointer + 2U);
+        if (compGlyph.idx == INVALID_GLYPH) continue;
         pointer += 4U;
         if (flags & ARG_1_AND_2_ARE_WORDS) {
             if (!validate(pointer, 4)) return false;
-            if(flags & ARGS_ARE_XY_VALUES) {
-                componentOffset.x = static_cast<float>(_i16(data, pointer));
-                componentOffset.y = -static_cast<float>(_i16(data, pointer + 2U));
-            } else {
-                // TODO align to parent point
-                componentOffset.x = 0;
-                componentOffset.y = 0;
-            }
+            // TODO: align to parent point
+            compOffset = (flags & ARGS_ARE_XY_VALUES) ? Point{float(_i16(data, pointer)), -float(_i16(data, pointer + 2U))} : Point{0.0f, 0.0f};
             pointer += 4U;
         } else {
             if (!validate(pointer, 2)) return false;
-            if(flags & ARGS_ARE_XY_VALUES) {
-                componentOffset.x = static_cast<float>((int8_t)_u8(data, pointer));
-                componentOffset.y = -static_cast<float>((int8_t)_u8(data, pointer + 1U));
-            } else {
-                // TODO align to parent point
-                componentOffset.x = 0;
-                componentOffset.y = 0;
-            }
+            // TODO: align to parent point
+            compOffset = (flags & ARGS_ARE_XY_VALUES) ? Point{float(_i8(data, pointer)), -float(_i8(data, pointer + 1U))} : Point{0.0f, 0.0f};
             pointer += 2U;
         }
         if (flags & WE_HAVE_A_SCALE) {
@@ -596,24 +568,21 @@ bool TtfReader::convertComposite(Shape* shape, TtfGlyphMetrics& gmetrics, const 
             // F2DOT14  yscale;    /* Format 2.14 */
             pointer += 8U;
         }
-        if (!glyphMetrics(glyphIndex, componentGmetrics)) return false;
-        if (!convert(shape, componentGmetrics, offset + componentOffset, kerning, componentDepth)) return false;
+        if (!convert(path, compGlyph, glyphMetrics(compGlyph), offset + compOffset, depth)) return false;
     } while (flags & MORE_COMPONENTS);
     return true;
 }
 
 
-void TtfReader::kerning(uint32_t lglyph, uint32_t rglyph, Point& out)
+bool TtfReader::kerning(uint32_t lglyph, uint32_t rglyph, Point& out)
 {
     #define HORIZONTAL_KERNING 0x01
     #define MINIMUM_KERNING 0x02
     #define CROSS_STREAM_KERNING 0x04
 
-    if (!kern) return;
+    if (!kern) return false;
 
     auto kern = this->kern.load();
-
-    out.x = out.y = 0.0f;
 
     //kern tables
     auto tableCnt = _u16(data, kern + 2);
@@ -621,7 +590,7 @@ void TtfReader::kerning(uint32_t lglyph, uint32_t rglyph, Point& out)
 
     while (tableCnt > 0) {
         //read subtable header.
-        if (!validate(kern, 6)) return;
+        if (!validate(kern, 6)) return false;
         auto length = _u16(data, kern + 2);
         auto format = _u8(data, kern + 4);
         auto flags = _u8(data, kern + 5);
@@ -629,7 +598,7 @@ void TtfReader::kerning(uint32_t lglyph, uint32_t rglyph, Point& out)
 
         if (format == 0 && (flags & HORIZONTAL_KERNING) && !(flags & MINIMUM_KERNING)) {
             //read format 0 header.
-            if (!validate(kern, 8)) return;
+            if (!validate(kern, 8)) return false;
             auto pairCnt = _u16(data, kern);
             kern += 8;
 
@@ -651,4 +620,6 @@ void TtfReader::kerning(uint32_t lglyph, uint32_t rglyph, Point& out)
         kern += length;
         --tableCnt;
     }
+
+    return true;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,8 +26,14 @@
 extern const char* COLOR_VERT_SHADER;
 extern const char* COLOR_FRAG_SHADER;
 extern const char* GRADIENT_VERT_SHADER;
-extern const char* LINEAR_GRADIENT_FRAG_SHADER;
-extern const char* RADIAL_GRADIENT_FRAG_SHADER;
+extern const char* STR_GRADIENT_FRAG_COMMON_VARIABLES;
+extern const char* STR_GRADIENT_FRAG_COMMON_FUNCTIONS;
+extern const char* STR_LINEAR_GRADIENT_VARIABLES;
+extern const char* STR_LINEAR_GRADIENT_FUNCTIONS;
+extern const char* STR_LINEAR_GRADIENT_MAIN;
+extern const char* STR_RADIAL_GRADIENT_VARIABLES;
+extern const char* STR_RADIAL_GRADIENT_FUNCTIONS;
+extern const char* STR_RADIAL_GRADIENT_MAIN;
 extern const char* IMAGE_VERT_SHADER;
 extern const char* IMAGE_FRAG_SHADER;
 extern const char* MASK_VERT_SHADER;
@@ -45,14 +51,39 @@ extern const char* STENCIL_VERT_SHADER;
 extern const char* STENCIL_FRAG_SHADER;
 extern const char* BLIT_VERT_SHADER;
 extern const char* BLIT_FRAG_SHADER;
+
+extern const char* BLEND_IMAGE_FRAG_HEADER;
+extern const char* BLEND_SCENE_FRAG_HEADER;
+extern const char* BLEND_SHAPE_SOLID_FRAG_HEADER;
+extern const char* BLEND_SHAPE_LINEAR_FRAG_HEADER;
+extern const char* BLEND_SHAPE_RADIAL_FRAG_HEADER;
+
+extern const char* BLEND_FRAG_HSL;
+
+extern const char* NORMAL_BLEND_FRAG;
 extern const char* MULTIPLY_BLEND_FRAG;
 extern const char* SCREEN_BLEND_FRAG;
 extern const char* OVERLAY_BLEND_FRAG;
+extern const char* DARKEN_BLEND_FRAG;
+extern const char* LIGHTEN_BLEND_FRAG;
 extern const char* COLOR_DODGE_BLEND_FRAG;
 extern const char* COLOR_BURN_BLEND_FRAG;
 extern const char* HARD_LIGHT_BLEND_FRAG;
 extern const char* SOFT_LIGHT_BLEND_FRAG;
 extern const char* DIFFERENCE_BLEND_FRAG;
 extern const char* EXCLUSION_BLEND_FRAG;
+extern const char* HUE_BLEND_FRAG;
+extern const char* SATURATION_BLEND_FRAG;
+extern const char* COLOR_BLEND_FRAG;
+extern const char* LUMINOSITY_BLEND_FRAG;
+extern const char* ADD_BLEND_FRAG;
+
+extern const char* EFFECT_VERTEX;
+extern const char* GAUSSIAN_VERTICAL;
+extern const char* GAUSSIAN_HORIZONTAL;
+extern const char* EFFECT_DROPSHADOW;
+extern const char* EFFECT_FILL;
+extern const char* EFFECT_TINT;
+extern const char* EFFECT_TRITONE;
 
 #endif /* _TVG_GL_SHADERSRC_H_ */

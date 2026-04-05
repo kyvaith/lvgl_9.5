@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
 #include <iostream>
 #include <string.h>
 #include <vector>
+#include <memory>
 #include <thorvg.h>
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
@@ -53,7 +54,7 @@ private:
 
    void helpMsg()
    {
-      cout << "Usage: \n   lottie2gif [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color]\n\nExamples: \n    $ lottie2gif input.json\n    $ lottie2gif input.json -r 600x600\n    $ lottie2gif input.json -f 30\n    $ lottie2gif input.json -r 600x600 -f 30\n    $ lottie2gif lottiefolder\n    $ lottie2gif lottiefolder -r 600x600 -f 30 -b fa7410\n\n";
+      cout << "Usage: \n   tvg-lottie2gif [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color]\n\nExamples: \n    $ tvg-lottie2gif input.json\n    $ tvg-lottie2gif input.json -r 600x600\n    $ tvg-lottie2gif input.json -f 30\n    $ tvg-lottie2gif input.json -r 600x600 -f 30\n    $ tvg-lottie2gif lottiefolder\n    $ tvg-lottie2gif lottiefolder -r 600x600 -f 30 -b fa7410\n\n";
    }
 
    bool validate(string& lottieName)
@@ -69,32 +70,30 @@ private:
 
    bool convert(string& in, string& out)
    {
-      if (Initializer::init(CanvasEngine::Sw, 0) != Result::Success) return false;
+      if (Initializer::init() != Result::Success) return false;
+      {
+         auto animation = Animation::gen();
+         auto picture = animation->picture();
+         if (picture->load(in.c_str()) != Result::Success) return false;
 
-      auto animation = Animation::gen();
-      auto picture = animation->picture();
-      if (picture->load(in) != Result::Success) return false;
+         float width, height;
+         picture->size(&width, &height);
+         float scale =  static_cast<float>(this->width) / width;
+         picture->size(width * scale, height * scale);
 
-      float width, height;
-      picture->size(&width, &height);
-      float scale =  static_cast<float>(this->width) / width;
-      picture->size(width * scale, height * scale);
+         auto saver = unique_ptr<Saver>(Saver::gen());
 
-      auto saver = Saver::gen();
-
-      //set a background color
-      if (background) {
-         auto bg = Shape::gen();
-         bg->fill(r, g, b);
-         bg->appendRect(0, 0, width * scale, height * scale);
-         saver->background(std::move(bg));
+         //set a background color
+         if (background) {
+            auto bg = Shape::gen();
+            bg->fill(r, g, b);
+            bg->appendRect(0, 0, width * scale, height * scale);
+            saver->background(bg);
+         }
+         if (saver->save(animation, out.c_str(), 100, fps) != Result::Success) return false;
+         if (saver->sync() != Result::Success) return false;
       }
-      if (saver->save(std::move(animation), out, 100, fps) != Result::Success) return false;
-      if (saver->sync() != Result::Success) return false;
-
-      if (Initializer::term(CanvasEngine::Sw) != Result::Success) return false;
-
-      return true;
+      return Initializer::term() == Result::Success;
    }
 
    void convert(string& lottieName)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,41 +23,8 @@
 #include "tvgGlShader.h"
 
 /************************************************************************/
-/* External Class Implementation                                        */
+/* Internal Class Implementation                                        */
 /************************************************************************/
-
-shared_ptr<GlShader> GlShader::gen(const char* vertSrc, const char* fragSrc)
-{
-    shared_ptr<GlShader> shader = make_shared<GlShader>();
-    shader->createShader(vertSrc, fragSrc);
-    return shader;
-}
-
-
-GlShader::~GlShader()
-{
-    glDeleteShader(mVtShader);
-    glDeleteShader(mFrShader);
-}
-
-uint32_t GlShader::getVertexShader()
-{
-    return mVtShader;
-}
-
-
-uint32_t GlShader::getFragmentShader()
-{
-    return mFrShader;
-}
-
-
-void GlShader::createShader(const char* vertSrc, const char* fragSrc)
-{
-    mVtShader = compileShader(GL_VERTEX_SHADER, const_cast<char*>(vertSrc));
-    mFrShader = compileShader(GL_FRAGMENT_SHADER, const_cast<char*>(fragSrc));
-}
-
 
 uint32_t GlShader::compileShader(uint32_t type, char* shaderSrc)
 {
@@ -99,10 +66,10 @@ uint32_t GlShader::compileShader(uint32_t type, char* shaderSrc)
 
         if (infoLen > 0)
         {
-            auto infoLog = static_cast<char*>(malloc(sizeof(char)*infoLen));
+            auto infoLog = tvg::malloc<char>(sizeof(char)*infoLen);
             glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
             TVGERR("GL_ENGINE", "Error compiling shader: %s", infoLog);
-            free(infoLog);
+            tvg::free(infoLog);
         }
         glDeleteShader(shader);
     }
@@ -110,3 +77,30 @@ uint32_t GlShader::compileShader(uint32_t type, char* shaderSrc)
     return shader;
 }
 
+/************************************************************************/
+/* External Class Implementation                                        */
+/************************************************************************/
+
+GlShader::GlShader(const char* vertSrc, const char* fragSrc)
+{
+    mVtShader = compileShader(GL_VERTEX_SHADER, const_cast<char*>(vertSrc));
+    mFrShader = compileShader(GL_FRAGMENT_SHADER, const_cast<char*>(fragSrc));
+}
+
+
+GlShader::~GlShader()
+{
+    glDeleteShader(mVtShader);
+    glDeleteShader(mFrShader);
+}
+
+uint32_t GlShader::getVertexShader()
+{
+    return mVtShader;
+}
+
+
+uint32_t GlShader::getFragmentShader()
+{
+    return mFrShader;
+}

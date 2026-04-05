@@ -1,5 +1,5 @@
-/*
- * Copyright (c) 2023 - 2025 the ThorVG project. All rights reserved.
+    /*
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -42,6 +42,7 @@
  * SOFTWARE.
  */
 
+#include "tvgStr.h"
 #include "tvgLottieParserHandler.h"
 
 
@@ -116,7 +117,7 @@ const char* LookaheadParserHandler::getString()
 char* LookaheadParserHandler::getStringCopy()
 {
     auto str = getString();
-    if (str) return strdup(str);
+    if (str) return duplicate(str);
     return nullptr;
 }
 
@@ -208,10 +209,8 @@ const char* LookaheadParserHandler::nextObjectKey()
 }
 
 
-void LookaheadParserHandler::skip(const char* key)
+void LookaheadParserHandler::skip()
 {
-    //if (key) TVGLOG("LOTTIE", "Skipped parsing value = %s", key);
-
     if (peekType() == kArrayType) {
         enterArray();
         skipOut(1);

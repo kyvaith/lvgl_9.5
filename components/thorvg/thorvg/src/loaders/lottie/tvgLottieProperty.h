@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,8 @@
 
 #include <algorithm>
 #include "tvgMath.h"
-#include "tvgLottieCommon.h"
+#include "tvgStr.h"
+#include "tvgLottieData.h"
 #include "tvgLottieInterpolator.h"
 #include "tvgLottieExpressions.h"
 #include "tvgLottieModifier.h"
@@ -35,6 +36,10 @@ struct LottieFont;
 struct LottieLayer;
 struct LottieObject;
 struct LottieProperty;
+
+
+//default keyframe updates condition (no tweening)
+#define DEFAULT_COND (!tween.active || !frames || (frames->count == 1))
 
 
 template<typename T>
@@ -54,7 +59,16 @@ struct LottieScalarFrame
             if (t < 1.0f) return value;
             else return next->value;
         }
-        return lerp(value, next->value, t);
+        return tvg::lerp(value, next->value, t);
+    }
+
+    float angle(LottieScalarFrame* next, float frameNo)
+    {
+        return 0.0f;
+    }
+
+    void prepare(TVG_UNUSED LottieScalarFrame* next)
+    {
     }
 };
 
@@ -84,7 +98,7 @@ struct LottieVectorFrame
             Bezier bz = {value, value + outTangent, next->value + inTangent, next->value};
             return bz.at(bz.atApprox(t * length, length));
         } else {
-            return lerp(value, next->value, t);
+            return tvg::lerp(value, next->value, t);
         }
     }
 
@@ -112,11 +126,18 @@ struct LottieVectorFrame
 
 struct LottieExpression
 {
+    //writable expressions variable name and value.
+    struct Writable {
+        char* var;
+        float val;
+    };
+
     char* code;
     LottieComposition* comp;
     LottieLayer* layer;
     LottieObject* object;
     LottieProperty* property;
+    Array<Writable> writables;
     bool disabled = false;
 
     LottieExpression() {}
@@ -133,7 +154,23 @@ struct LottieExpression
 
     ~LottieExpression()
     {
-        free(code);
+        ARRAY_FOREACH(p, writables) {
+            tvg::free(p->var);
+        }
+        tvg::free(code);
+    }
+
+    bool assign(const char* var, float val)
+    {
+        //overwrite the existing value
+        ARRAY_FOREACH(p, writables) {
+            if (tvg::equal(var, p->var)) {
+                p->val = val;
+                return true;
+            }
+        }
+        writables.push({tvg::duplicate(var), val});
+        return true;
     }
 };
 
@@ -141,17 +178,19 @@ struct LottieExpression
 //Property would have an either keyframes or single value.
 struct LottieProperty
 {
-    enum class Type : uint8_t { Point = 0, Float, Opacity, Color, PathSet, ColorStop, Position, TextDoc, Image, Invalid };
+    enum class Type : uint8_t {Invalid = 0, Integer, Float, Scalar, Vector, PathSet, Color, Opacity, ColorStop, TextDoc, Image};
     enum class Loop : uint8_t {None = 0, InCycle = 1, InPingPong, InOffset, InContinue, OutCycle, OutPingPong, OutOffset, OutContinue};
 
     LottieExpression* exp = nullptr;
     Type type;
     uint8_t ix;  //property index
+    unsigned long sid; //property sid for slot
 
-    //TODO: Apply common bodies?
+    LottieProperty(Type type = Type::Invalid) : type(type) {}
     virtual ~LottieProperty() {}
+
     virtual uint32_t frameCnt() = 0;
-    virtual uint32_t nearest(float time) = 0;
+    virtual uint32_t nearest(float frameNo) = 0;
     virtual float frameNo(int32_t key) = 0;
     virtual float loop(float frameNo, uint32_t key, Loop mode, float inout) = 0;
 
@@ -159,6 +198,7 @@ struct LottieProperty
     {
         type = rhs->type;
         ix = rhs->ix;
+        sid = rhs->sid;
 
         if (!rhs->exp) return false;
         if (shallow) {
@@ -173,32 +213,29 @@ struct LottieProperty
 };
 
 
-static void _copy(PathSet* pathset, Array<Point>& outPts, Matrix* transform)
+static void _copy(PathSet* pathset, Array<Point>& out, Matrix* transform)
 {
-    Array<Point> inPts;
-
     if (transform) {
         for (int i = 0; i < pathset->ptsCnt; ++i) {
-            Point pt = pathset->pts[i];
-            pt *= *transform;
-            outPts.push(pt);
+            out.push(pathset->pts[i] * *transform);
         }
     } else {
-        inPts.data = pathset->pts;
-        inPts.count = pathset->ptsCnt;
-        outPts.push(inPts);
-        inPts.data = nullptr;
+        Array<Point> in;
+        in.data = pathset->pts;
+        in.count = pathset->ptsCnt;
+        out.push(in);
+        in.data = nullptr;
     }
 }
 
 
-static void _copy(PathSet* pathset, Array<PathCommand>& outCmds)
+static void _copy(PathSet* pathset, Array<PathCommand>& out)
 {
-    Array<PathCommand> inCmds;
-    inCmds.data = pathset->cmds;
-    inCmds.count = pathset->cmdsCnt;
-    outCmds.push(inCmds);
-    inCmds.data = nullptr;
+    Array<PathCommand> in;
+    in.data = pathset->cmds;
+    in.count = pathset->cmdsCnt;
+    out.push(in);
+    in.data = nullptr;
 }
 
 
@@ -275,19 +312,22 @@ float _loop(T* frames, float frameNo, uint32_t key, LottieProperty::Loop mode, f
 }
 
 
-template<typename T>
+template<typename Frame, typename Value, LottieProperty::Type PType = LottieProperty::Type::Invalid, bool Scalar = 1>
 struct LottieGenericProperty : LottieProperty
 {
+    using MyProperty = LottieGenericProperty<Frame, Value, PType, Scalar>;
+
     //Property has an either keyframes or single value.
-    Array<LottieScalarFrame<T>>* frames = nullptr;
-    T value;
+    Array<Frame>* frames = nullptr;
+    Value value;
 
-    LottieGenericProperty(T v) : value(v) {}
-    LottieGenericProperty() {}
+    LottieGenericProperty(Value v) : LottieProperty(PType), value(v) {}
 
-    LottieGenericProperty(const LottieGenericProperty<T>& rhs)
+    LottieGenericProperty() : LottieProperty(PType) {}
+
+    LottieGenericProperty(const MyProperty& rhs)
     {
-        copy(const_cast<LottieGenericProperty<T>&>(rhs));
+        copy(const_cast<MyProperty&>(rhs));
     }
 
     ~LottieGenericProperty()
@@ -325,25 +365,31 @@ struct LottieGenericProperty : LottieProperty
         return _loop(frames, frameNo, key, mode, inout);
     }
 
-    LottieScalarFrame<T>& newFrame()
+    Frame& newFrame()
     {
-        if (!frames) frames = new Array<LottieScalarFrame<T>>;
+        if (!frames) frames = new Array<Frame>;
         if (frames->count + 1 >= frames->reserved) {
             auto old = frames->reserved;
             frames->grow(frames->count + 2);
-            memset((void*)(frames->data + old), 0x00, sizeof(LottieScalarFrame<T>) * (frames->reserved - old));
+            memset((void*)(frames->data + old), 0x00, sizeof(Frame) * (frames->reserved - old));
         }
         ++frames->count;
         return frames->last();
     }
 
-    LottieScalarFrame<T>& nextFrame()
+    Frame& nextFrame()
     {
         return (*frames)[frames->count];
     }
 
-    T operator()(float frameNo)
+    Value operator()(float frameNo, LottieExpressions* exps = nullptr)
     {
+        //overriding with expressions
+        if (exps && exp) {
+            Value out{};
+            if (exps->result<MyProperty>(frameNo, out, exp)) return out;
+        }
+
         if (!frames) return value;
         if (frames->count == 1 || frameNo <= frames->first().no) return frames->first().value;
         if (frameNo >= frames->last().no) return frames->last().value;
@@ -353,33 +399,58 @@ struct LottieGenericProperty : LottieProperty
         return frame->interpolate(frame + 1, frameNo);
     }
 
-    T operator()(float frameNo, LottieExpressions* exps)
+    Value operator()(float frameNo, Tween& tween, LottieExpressions* exps)
     {
-        if (exps && exp) {
-            T out{};
-            if (exps->result<LottieGenericProperty<T>>(frameNo, out, exp)) return out;
-        }
-        return operator()(frameNo);
+        if (DEFAULT_COND) return operator()(frameNo, exps);
+        return tvg::lerp(operator()(frameNo, exps), operator()(tween.frameNo, exps), tween.progress);
     }
 
-    void copy(LottieGenericProperty<T>& rhs, bool shallow = true)
+    void copy(MyProperty& rhs, bool shallow = true)
     {
         if (LottieProperty::copy(&rhs, shallow)) return;
 
         if (rhs.frames) {
             if (shallow) {
                 frames = rhs.frames;
-                const_cast<LottieGenericProperty<T>&>(rhs).frames = nullptr;
                 rhs.frames = nullptr;
             } else {
-                frames = new Array<LottieScalarFrame<T>>;
+                frames = new Array<Frame>;
                 *frames = *rhs.frames;
             }
-        } else value = rhs.value;
+        } else {
+            frames = nullptr;
+            value = rhs.value;
+        }
     }
 
-    float angle(float frameNo) { return 0; }
-    void prepare() {}
+    float angle(float frameNo)
+    {
+        if (!frames || frames->count == 1) return 0;
+
+        if (frameNo <= frames->first().no) return frames->first().angle(frames->data + 1, frames->first().no);
+        if (frameNo >= frames->last().no) {
+            auto frame = frames->data + frames->count - 2;
+            return frame->angle(frame + 1, frames->last().no);
+        }
+
+        auto frame = frames->data + _bsearch(frames, frameNo);
+        return frame->angle(frame + 1, frameNo);
+    }
+
+    float angle(float frameNo, Tween& tween)
+    {
+        if (DEFAULT_COND) return angle(frameNo);
+        return tvg::lerp(angle(frameNo), angle(tween.frameNo), tween.progress);
+    }
+
+    void prepare()
+    {
+        if (Scalar) return;
+        if (!frames || frames->count < 2) return;
+        for (auto frame = frames->begin() + 1; frame < frames->end(); ++frame) {
+            (frame - 1)->prepare(frame);
+        }
+    }
 };
 
 
@@ -387,6 +458,8 @@ struct LottiePathSet : LottieProperty
 {
     Array<LottieScalarFrame<PathSet>>* frames = nullptr;
     PathSet value;
+
+    LottiePathSet() : LottieProperty(LottieProperty::Type::PathSet) {}
 
     ~LottiePathSet()
     {
@@ -400,17 +473,17 @@ struct LottiePathSet : LottieProperty
             exp = nullptr;
         }
 
-        free(value.cmds);
-        free(value.pts);
+        tvg::free(value.cmds);
+        tvg::free(value.pts);
 
         if (!frames) return;
 
-        for (auto p = frames->begin(); p < frames->end(); ++p) {
-            free((*p).value.cmds);
-            free((*p).value.pts);
+        ARRAY_FOREACH(p, *frames) {
+            tvg::free((*p).value.cmds);
+            tvg::free((*p).value.pts);
         }
-        free(frames->data);
-        free(frames);
+        tvg::free(frames->data);
+        tvg::free(frames);
     }
 
     uint32_t nearest(float frameNo) override
@@ -436,7 +509,7 @@ struct LottiePathSet : LottieProperty
     LottieScalarFrame<PathSet>& newFrame()
     {
         if (!frames) {
-            frames = static_cast<Array<LottieScalarFrame<PathSet>>*>(calloc(1, sizeof(Array<LottieScalarFrame<PathSet>>)));
+            frames = tvg::calloc<Array<LottieScalarFrame<PathSet>>>(1, sizeof(Array<LottieScalarFrame<PathSet>>));
         }
         if (frames->count + 1 >= frames->reserved) {
             auto old = frames->reserved;
@@ -452,13 +525,9 @@ struct LottiePathSet : LottieProperty
         return (*frames)[frames->count];
     }
 
-    bool operator()(float frameNo, Array<PathCommand>& cmds, Array<Point>& pts, Matrix* transform, const LottieRoundnessModifier* roundness, const LottieOffsetModifier* offsetPath)
+    //return false means requiring the interpolation
+    bool dispatch(float frameNo, PathSet*& path, LottieScalarFrame<PathSet>*& frame, float& t)
     {
-        PathSet* path = nullptr;
-        LottieScalarFrame<PathSet>* frame = nullptr;
-        float t;
-        bool interpolate = false;
-
         if (!frames) path = &value;
         else if (frames->count == 1 || frameNo <= frames->first().no) path = &frames->first().value;
         else if (frameNo >= frames->last().no) path = &frames->last().value;
@@ -467,76 +536,110 @@ struct LottiePathSet : LottieProperty
             if (tvg::equal(frame->no, frameNo)) path = &frame->value;
             else if (frame->value.ptsCnt != (frame + 1)->value.ptsCnt) {
                 path = &frame->value;
-                TVGLOG("LOTTIE", "Different numbers of points in consecutive frames - interpolation omitted.");
             } else {
                 t = (frameNo - frame->no) / ((frame + 1)->no - frame->no);
                 if (frame->interpolator) t = frame->interpolator->progress(t);
                 if (frame->hold) path = &(frame + ((t < 1.0f) ? 0 : 1))->value;
-                else interpolate = true;
+                else return false;
             }
         }
+        return true;
+    }
 
-        if (!interpolate) {
-            if (roundness) {
-                if (offsetPath) {
-                    Array<PathCommand> cmds1(path->cmdsCnt);
-                    Array<Point> pts1(path->ptsCnt);
-                    roundness->modifyPath(path->cmds, path->cmdsCnt, path->pts, path->ptsCnt, cmds1, pts1, transform);
-                    return offsetPath->modifyPath(cmds1.data, cmds1.count, pts1.data, pts1.count, cmds, pts);
-                }
-                return roundness->modifyPath(path->cmds, path->cmdsCnt, path->pts, path->ptsCnt, cmds, pts, transform);
-            }
-            if (offsetPath) return offsetPath->modifyPath(path->cmds, path->cmdsCnt, path->pts, path->ptsCnt, cmds, pts);
+    bool modifiedPath(float frameNo, RenderPath& out, Matrix* transform, LottieModifier* modifier)
+    {
+        PathSet* path;
+        LottieScalarFrame<PathSet>* frame;
+        RenderPath temp;
+        float t;
 
-            _copy(path, cmds);
-            _copy(path, pts, transform);
+        if (dispatch(frameNo, path, frame, t)) {
+            if (modifier) return modifier->modifyPath(path->cmds, path->cmdsCnt, path->pts, path->ptsCnt, transform, out);
+            _copy(path, out.cmds);
+            _copy(path, out.pts, transform);
             return true;
         }
 
+        //interpolate 2 frames
         auto s = frame->value.pts;
         auto e = (frame + 1)->value.pts;
-
-        if (!roundness && !offsetPath) {
-            for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s, ++e) {
-                auto pt = lerp(*s, *e, t);
-                if (transform) pt *= *transform;
-                pts.push(pt);
-            }
-            _copy(&frame->value, cmds);
-            return true;
-        }
-
-        auto interpPts = (Point*)malloc(frame->value.ptsCnt * sizeof(Point));
+        auto interpPts = tvg::malloc<Point>(frame->value.ptsCnt * sizeof(Point));
         auto p = interpPts;
+
         for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s, ++e, ++p) {
-            *p = lerp(*s, *e, t);
+            *p = tvg::lerp(*s, *e, t);
             if (transform) *p *= *transform;
         }
 
-        if (roundness) {
-            if (offsetPath) {
-                Array<PathCommand> cmds1;
-                Array<Point> pts1;
-                roundness->modifyPath(frame->value.cmds, frame->value.cmdsCnt, interpPts, frame->value.ptsCnt, cmds1, pts1, nullptr);
-                offsetPath->modifyPath(cmds1.data, cmds1.count, pts1.data, pts1.count, cmds, pts);
-            } else roundness->modifyPath(frame->value.cmds, frame->value.cmdsCnt, interpPts, frame->value.ptsCnt, cmds, pts, nullptr);
-        } else if (offsetPath) offsetPath->modifyPath(frame->value.cmds, frame->value.cmdsCnt, interpPts, frame->value.ptsCnt, cmds, pts);
+        if (modifier) modifier->modifyPath(frame->value.cmds, frame->value.cmdsCnt, interpPts, frame->value.ptsCnt, nullptr, out);
 
-        free(interpPts);
+        tvg::free(interpPts);
 
         return true;
     }
 
-
-    bool operator()(float frameNo, Array<PathCommand>& cmds, Array<Point>& pts, Matrix* transform, const LottieRoundnessModifier* roundness, const LottieOffsetModifier* offsetPath, LottieExpressions* exps)
+    bool defaultPath(float frameNo, RenderPath& out, Matrix* transform)
     {
-        if (exps && exp) {
-            if (exps->result<LottiePathSet>(frameNo, cmds, pts, transform, roundness, offsetPath, exp)) return true;
+        PathSet* path;
+        LottieScalarFrame<PathSet>* frame;
+        float t;
+
+        if (dispatch(frameNo, path, frame, t)) {
+            _copy(path, out.cmds);
+            _copy(path, out.pts, transform);
+            return true;
         }
-        return operator()(frameNo, cmds, pts, transform, roundness, offsetPath);
+
+        //interpolate 2 frames
+        auto s = frame->value.pts;
+        auto e = (frame + 1)->value.pts;
+
+        for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s, ++e) {
+            auto pt = tvg::lerp(*s, *e, t);
+            if (transform) pt *= *transform;
+            out.pts.push(pt);
+        }
+        _copy(&frame->value, out.cmds);
+        return true;
     }
 
-    void prepare() {}
+    bool tweening(float frameNo, RenderPath& out, Matrix* transform, LottieModifier* modifier, Tween& tween, LottieExpressions* exps)
+    {
+        RenderPath to;  //used as temp as well.
+        auto pivot = out.pts.count;
+        if (!operator()(frameNo, out, transform, exps)) return false;
+        if (!operator()(tween.frameNo, to, transform, exps)) return false;
+
+        auto from = out.pts.data + pivot;
+        if (to.pts.count != out.pts.count - pivot) TVGLOG("LOTTIE", "Tweening has different numbers of points in consecutive frames.");
+
+        for (uint32_t i = 0; i < std::min(to.pts.count, (out.pts.count - pivot)); ++i) {
+            from[i] = tvg::lerp(from[i], to.pts[i], tween.progress);
+        }
+
+        if (!modifier) return true;
+
+        //Apply modifiers
+        to.clear();
+        return modifier->modifyPath(to.cmds.data, to.cmds.count, to.pts.data, to.pts.count, transform, out);
+    }
+
+    bool operator()(float frameNo, RenderPath& out, Matrix* transform, LottieExpressions* exps, LottieModifier* modifier = nullptr)
+    {
+        //overriding with expressions
+        if (exps && exp) {
+            if (exps->result<LottiePathSet>(frameNo, out, transform, modifier, exp)) return true;
+        }
+
+        if (modifier) return modifiedPath(frameNo, out, transform, modifier);
+        else return defaultPath(frameNo, out, transform);
+    }
+
+    bool operator()(float frameNo, RenderPath& out, Matrix* transform, Tween& tween, LottieExpressions* exps, LottieModifier* modifier = nullptr)
+    {
+        if (DEFAULT_COND) return operator()(frameNo, out, transform, exps, modifier);
+        return tweening(frameNo, out, transform, modifier, tween, exps);
+    }
 };
 
 
@@ -547,7 +650,7 @@ struct LottieColorStop : LottieProperty
     uint16_t count = 0;     //colorstop count
     bool populated = false;
 
-    LottieColorStop() {}
+    LottieColorStop() : LottieProperty(LottieProperty::Type::ColorStop) {}
 
     LottieColorStop(const LottieColorStop& rhs)
     {
@@ -564,7 +667,7 @@ struct LottieColorStop : LottieProperty
         delete(exp);
         exp = nullptr;
 
-        free(value.data);
+        tvg::free(value.data);
         value.data = nullptr;
 
         delete(value.input);
@@ -572,12 +675,12 @@ struct LottieColorStop : LottieProperty
 
         if (!frames) return;
 
-        for (auto p = frames->begin(); p < frames->end(); ++p) {
-            free((*p).value.data);
+        ARRAY_FOREACH(p, *frames) {
+            tvg::free((*p).value.data);
             delete((*p).value.input);
         }
-        free(frames->data);
-        free(frames);
+        tvg::free(frames->data);
+        tvg::free(frames);
         frames = nullptr;
     }
 
@@ -604,7 +707,7 @@ struct LottieColorStop : LottieProperty
     LottieScalarFrame<ColorStop>& newFrame()
     {
         if (!frames) {
-            frames = static_cast<Array<LottieScalarFrame<ColorStop>>*>(calloc(1, sizeof(Array<LottieScalarFrame<ColorStop>>)));
+            frames = tvg::calloc<Array<LottieScalarFrame<ColorStop>>>(1, sizeof(Array<LottieScalarFrame<ColorStop>>));
         }
         if (frames->count + 1 >= frames->reserved) {
             auto old = frames->reserved;
@@ -620,8 +723,41 @@ struct LottieColorStop : LottieProperty
         return (*frames)[frames->count];
     }
 
-    Result operator()(float frameNo, Fill* fill, LottieExpressions* exps)
+    Result tweening(float frameNo, Fill* fill, Tween& tween, LottieExpressions* exps)
     {
+        auto frame = frames->data + _bsearch(frames, frameNo);
+        if (tvg::equal(frame->no, frameNo)) return fill->colorStops(frame->value.data, count);
+
+        //from
+        operator()(frameNo, fill, exps);
+
+        //to
+        auto dup = fill->duplicate();
+        operator()(tween.frameNo, dup, exps);
+
+        //interpolate
+        const Fill::ColorStop* from;
+        auto fromCnt = fill->colorStops(&from);
+
+        const Fill::ColorStop* to;
+        auto toCnt = fill->colorStops(&to);
+
+        if (fromCnt != toCnt) TVGLOG("LOTTIE", "Tweening has different numbers of color data in consecutive frames.");
+
+        for (uint32_t i = 0; i < std::min(fromCnt, toCnt); ++i) {
+            const_cast<Fill::ColorStop*>(from)->offset = tvg::lerp(from->offset, to->offset, tween.progress);
+            const_cast<Fill::ColorStop*>(from)->r = tvg::lerp(from->r, to->r, tween.progress);
+            const_cast<Fill::ColorStop*>(from)->g = tvg::lerp(from->g, to->g, tween.progress);
+            const_cast<Fill::ColorStop*>(from)->b = tvg::lerp(from->b, to->b, tween.progress);
+            const_cast<Fill::ColorStop*>(from)->a = tvg::lerp(from->a, to->a, tween.progress);
+        }
+
+        return Result::Success;
+    }
+
+    Result operator()(float frameNo, Fill* fill, LottieExpressions* exps = nullptr)
+    {
+        //overriding with expressions
         if (exps && exp) {
             if (exps->result<LottieColorStop>(frameNo, fill, exp)) return Result::Success;
         }
@@ -632,9 +768,7 @@ struct LottieColorStop : LottieProperty
             return fill->colorStops(frames->first().value.data, count);
         }
 
-        if (frameNo >= frames->last().no) {
-            return fill->colorStops(frames->last().value.data, count);
-        }
+        if (frameNo >= frames->last().no) return fill->colorStops(frames->last().value.data, count);
 
         auto frame = frames->data + _bsearch(frames, frameNo);
         if (tvg::equal(frame->no, frameNo)) return fill->colorStops(frame->value.data, count);
@@ -654,14 +788,20 @@ struct LottieColorStop : LottieProperty
         Array<Fill::ColorStop> result;
 
         for (auto i = 0; i < count; ++i, ++s, ++e) {
-            auto offset = lerp(s->offset, e->offset, t);
-            auto r = lerp(s->r, e->r, t);
-            auto g = lerp(s->g, e->g, t);
-            auto b = lerp(s->b, e->b, t);
-            auto a = lerp(s->a, e->a, t);
+            auto offset = tvg::lerp(s->offset, e->offset, t);
+            auto r = tvg::lerp(s->r, e->r, t);
+            auto g = tvg::lerp(s->g, e->g, t);
+            auto b = tvg::lerp(s->b, e->b, t);
+            auto a = tvg::lerp(s->a, e->a, t);
             result.push({offset, r, g, b, a});
         }
         return fill->colorStops(result.data, count);
+    }
+
+    Result operator()(float frameNo, Fill* fill, Tween& tween, LottieExpressions* exps)
+    {
+        if (DEFAULT_COND) return operator()(frameNo, fill, exps);
+        return tweening(frameNo, fill, tween, exps);
     }
 
     void copy(LottieColorStop& rhs, bool shallow = true)
@@ -675,7 +815,7 @@ struct LottieColorStop : LottieProperty
                 frames = rhs.frames;
                 rhs.frames = nullptr;
             } else {
-                frames = (Array<LottieScalarFrame<ColorStop>>*)calloc(1, sizeof(Array<LottieScalarFrame<ColorStop>>));
+                frames = tvg::calloc<Array<LottieScalarFrame<ColorStop>>>(1, sizeof(Array<LottieScalarFrame<ColorStop>>));
                 *frames = *rhs.frames;
                 for (uint32_t i = 0; i < (*rhs.frames).count; ++i) {
                     (*frames)[i].value.copy((*rhs.frames)[i].value, rhs.count);
@@ -698,131 +838,12 @@ struct LottieColorStop : LottieProperty
 };
 
 
-struct LottiePosition : LottieProperty
-{
-    Array<LottieVectorFrame<Point>>* frames = nullptr;
-    Point value;
-
-    LottiePosition(Point v) : value(v)
-    {
-    }
-
-    ~LottiePosition()
-    {
-        release();
-    }
-
-    void release()
-    {
-        delete(frames);
-        frames = nullptr;
-
-        if (exp) {
-            delete(exp);
-            exp = nullptr;
-        }
-    }
-
-    uint32_t nearest(float frameNo) override
-    {
-        return _nearest(frames, frameNo);
-    }
-
-    uint32_t frameCnt() override
-    {
-        return frames ? frames->count : 1;
-    }
-
-    float frameNo(int32_t key) override
-    {
-        return _frameNo(frames, key);
-    }
-
-    float loop(float frameNo, uint32_t key, Loop mode, float inout) override
-    {
-        return _loop(frames, frameNo, key, mode, inout);
-    }
-
-    LottieVectorFrame<Point>& newFrame()
-    {
-        if (!frames) frames = new Array<LottieVectorFrame<Point>>;
-        if (frames->count + 1 >= frames->reserved) {
-            auto old = frames->reserved;
-            frames->grow(frames->count + 2);
-            memset((void*)(frames->data + old), 0x00, sizeof(LottieVectorFrame<Point>) * (frames->reserved - old));
-        }
-        ++frames->count;
-        return frames->last();
-    }
-
-    LottieVectorFrame<Point>& nextFrame()
-    {
-        return (*frames)[frames->count];
-    }
-
-    Point operator()(float frameNo)
-    {
-        if (!frames) return value;
-        if (frames->count == 1 || frameNo <= frames->first().no) return frames->first().value;
-        if (frameNo >= frames->last().no) return frames->last().value;
-
-        auto frame = frames->data + _bsearch(frames, frameNo);
-        if (tvg::equal(frame->no, frameNo)) return frame->value;
-        return frame->interpolate(frame + 1, frameNo);
-    }
-
-    Point operator()(float frameNo, LottieExpressions* exps)
-    {
-        Point out{};
-        if (exps && exp) {
-            if (exps->result<LottiePosition>(frameNo, out, exp)) return out;
-        }
-        return operator()(frameNo);
-    }
-
-    float angle(float frameNo)
-    {
-        if (!frames || frames->count == 1) return 0;
-
-        if (frameNo <= frames->first().no) return frames->first().angle(frames->data + 1, frames->first().no);
-        if (frameNo >= frames->last().no) {
-            auto frame = frames->data + frames->count - 2;
-            return frame->angle(frame + 1, frames->last().no);
-        }
-
-        auto frame = frames->data + _bsearch(frames, frameNo);
-        return frame->angle(frame + 1, frameNo);
-    }
-
-    void copy(const LottiePosition& rhs, bool shallow = true)
-    {
-        if (rhs.frames) {
-            if (shallow) {
-                frames = rhs.frames;
-                const_cast<LottiePosition&>(rhs).frames = nullptr;
-            } else {
-                frames = new Array<LottieVectorFrame<Point>>;
-                *frames = *rhs.frames;
-            }
-        } else value = rhs.value;
-    }
-
-    void prepare()
-    {
-        if (!frames || frames->count < 2) return;
-        for (auto frame = frames->begin() + 1; frame < frames->end(); ++frame) {
-            (frame - 1)->prepare(frame);
-        }
-    }
-};
-
-
 struct LottieTextDoc : LottieProperty
 {
     Array<LottieScalarFrame<TextDocument>>* frames = nullptr;
     TextDocument value;
 
-    LottieTextDoc() {}
+    LottieTextDoc() : LottieProperty(LottieProperty::Type::TextDoc) {}
 
     LottieTextDoc(const LottieTextDoc& rhs)
     {
@@ -842,19 +863,19 @@ struct LottieTextDoc : LottieProperty
         }
 
         if (value.text) {
-            free(value.text);
+            tvg::free(value.text);
             value.text = nullptr;
         }
         if (value.name) {
-            free(value.name);
+            tvg::free(value.name);
             value.name = nullptr;
         }
 
         if (!frames) return;
 
-        for (auto p = frames->begin(); p < frames->end(); ++p) {
-            free((*p).value.text);
-            free((*p).value.name);
+        ARRAY_FOREACH(p, *frames) {
+            tvg::free((*p).value.text);
+            tvg::free((*p).value.name);
         }
         delete(frames);
         frames = nullptr;
@@ -907,6 +928,16 @@ struct LottieTextDoc : LottieProperty
         return frame->value;
     }
 
+    TextDocument& operator()(float frameNo, LottieExpressions* exps)
+    {
+        auto& out = operator()(frameNo);
+
+        //overriding with expressions
+        if (exps && exp) exps->result(frameNo, out, exp);
+
+        return out;
+    }
+
     void copy(LottieTextDoc& rhs, bool shallow = true)
     {
         if (LottieProperty::copy(&rhs, shallow)) return;
@@ -918,11 +949,19 @@ struct LottieTextDoc : LottieProperty
             } else {
                 frames = new Array<LottieScalarFrame<TextDocument>>;
                 *frames = *rhs.frames;
+                for (uint32_t i = 0; i < (*rhs.frames).count; ++i) {
+                    (*frames)[i].value.copy((*rhs.frames)[i].value);
+                }
             }
         } else {
-            value = rhs.value;
-            rhs.value.text = nullptr;
-            rhs.value.name = nullptr;
+            frames = nullptr;
+            if (shallow) {
+                value = rhs.value;
+                rhs.value.text = nullptr;
+                rhs.value.name = nullptr;
+            } else {
+                value.copy(rhs.value);
+            }
         }
     }
 
@@ -933,15 +972,16 @@ struct LottieTextDoc : LottieProperty
 struct LottieBitmap : LottieProperty
 {
     union {
-        char* b64Data = nullptr;
+        char* data = nullptr;
         char* path;
     };
+    Picture *picture = nullptr;
     char* mimeType = nullptr;
     uint32_t size = 0;
     float width = 0.0f;
     float height = 0.0f;
 
-    LottieBitmap() {}
+    LottieBitmap() : LottieProperty(LottieProperty::Type::Image) {}
 
     LottieBitmap(const LottieBitmap& rhs)
     {
@@ -955,15 +995,20 @@ struct LottieBitmap : LottieProperty
 
     void release()
     {
-        free(b64Data);
-        free(mimeType);
+        if (picture) {
+            picture->unref();
+            picture = nullptr;
+        }
 
-        b64Data = nullptr;
+        tvg::free(data);
+        tvg::free(mimeType);
+
+        data = nullptr;
         mimeType = nullptr;
     }
 
     uint32_t frameCnt() override { return 0; }
-    uint32_t nearest(float time) override { return 0; }
+    uint32_t nearest(float frameNo) override { return 0; }
     float frameNo(int32_t key) override { return 0; }
     float loop(float frameNo, TVG_UNUSED uint32_t key, TVG_UNUSED Loop mode, TVG_UNUSED float inout) override { return frameNo; }
 
@@ -971,30 +1016,23 @@ struct LottieBitmap : LottieProperty
     {
         if (LottieProperty::copy(&rhs, shallow)) return;
 
-        if (shallow) {
-            b64Data = rhs.b64Data;
-            mimeType = rhs.mimeType;
+        release();
 
-            rhs.b64Data = nullptr;
-            rhs.mimeType = nullptr;
-        } else {
-            //TODO: optimize here by avoiding data copy
-            TVGLOG("LOTTIE", "Shallow copy of the image data!");
-            b64Data = strdup(rhs.b64Data);
-            mimeType = strdup(rhs.mimeType);
+        if (rhs.picture) {
+            picture = rhs.picture;
+            picture->ref();
         }
 
-        size = rhs.size;
         width = rhs.width;
         height = rhs.height;
     }
 };
 
-
-using LottiePoint = LottieGenericProperty<Point>;
-using LottieFloat = LottieGenericProperty<float>;
-using LottieOpacity = LottieGenericProperty<uint8_t>;
-using LottieColor = LottieGenericProperty<RGB24>;
-using LottieInteger = LottieGenericProperty<int8_t>;
+using LottieFloat = LottieGenericProperty<LottieScalarFrame<float>, float, LottieProperty::Type::Float>;
+using LottieInteger = LottieGenericProperty<LottieScalarFrame<int8_t>, int8_t, LottieProperty::Type::Integer>;
+using LottieScalar = LottieGenericProperty<LottieScalarFrame<Point>, Point, LottieProperty::Type::Scalar>;
+using LottieVector = LottieGenericProperty<LottieVectorFrame<Point>, Point, LottieProperty::Type::Vector, 0>;
+using LottieColor = LottieGenericProperty<LottieScalarFrame<RGB32>, RGB32, LottieProperty::Type::Color>;
+using LottieOpacity = LottieGenericProperty<LottieScalarFrame<uint8_t>, uint8_t, LottieProperty::Type::Opacity>;
 
 #endif //_TVG_LOTTIE_PROPERTY_H_

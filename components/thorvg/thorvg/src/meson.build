@@ -18,6 +18,11 @@ if cc.get_id() == 'clang-cl'
         compiler_flags += ['/clang:-mfpu=neon']
     endif
     compiler_flags += ['/clang:-Wno-unknown-pragmas']
+
+    if logging == false
+        compiler_flags += ['/clang:-Wdouble-promotion']
+    endif
+
     if get_option('b_sanitize') == 'none'
         override_options += ['cpp_eh=none','cpp_rtti=false']
         compiler_flags += ['/clang:-fno-math-errno', '/clang:-Woverloaded-virtual',
@@ -34,9 +39,14 @@ else
         compiler_flags += ['-mfpu=neon']
     endif
     compiler_flags += ['-Wno-unknown-pragmas']
+
+    if logging == false
+        compiler_flags += ['-Wdouble-promotion']
+    endif
+
     if get_option('b_sanitize') == 'none'
         compiler_flags += ['-fno-exceptions', '-fno-rtti', '-fno-stack-protector', '-fno-math-errno',
-                           '-fno-unwind-tables' , '-fno-asynchronous-unwind-tables', '-Woverloaded-virtual']
+                           '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-Woverloaded-virtual']
     endif
 endif
 
@@ -55,9 +65,10 @@ endif
 subdir('bindings')
 
 thorvg_lib = library(
-    'thorvg',
+    'thorvg-' + vmaj,
     include_directories    : headers,
     version                : meson.project_version(),
+    soversion              : host_machine.system() != 'windows' ? vmaj : '',
     dependencies           : thorvg_lib_dep,
     install                : true,
     cpp_args               : compiler_flags,
@@ -70,7 +81,7 @@ thorvg_dep = declare_dependency(
   include_directories: thorvg_inc,
   link_with: thorvg_lib,
 )
-meson.override_dependency('thorvg', thorvg_dep)
+meson.override_dependency('thorvg-' + vmaj, thorvg_dep)
 
 pkg_mod = import('pkgconfig')
 
@@ -78,6 +89,7 @@ pkg_mod.generate(
     libraries    : thorvg_lib,
     version      : meson.project_version(),
     name         : 'libthorvg',
-    filebase     : 'thorvg',
+    filebase     : 'thorvg-' + vmaj,
+    subdirs      : 'thorvg-' + vmaj,
     description  : 'A Thor library for rendering vector graphics'
 )

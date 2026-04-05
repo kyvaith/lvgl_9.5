@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,14 +21,29 @@
  * SOFTWARE.
  */
 
-#include "tvgMath.h"
+#include "tvgGlCommon.h"
 #include "tvgGlRenderPass.h"
 #include "tvgGlRenderTask.h"
-#include "tvgGlGeometry.h"
 
-GlRenderPass::GlRenderPass(GlRenderTarget* fbo): mFbo(fbo), mTasks(), mDrawDepth(0) {}
+static Matrix _viewMatrix(const RenderRegion& vp)
+{
+    Matrix postMatrix = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    translate(&postMatrix, {(float)-vp.sx(), (float)-vp.sy()});
 
-GlRenderPass::GlRenderPass(GlRenderPass&& other): mFbo(other.mFbo), mTasks(), mDrawDepth(0)
+    Matrix mvp = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    mvp.e11 = 2.f / vp.w();
+    mvp.e22 = -2.f / vp.h();
+    mvp.e13 = -1.f;
+    mvp.e23 = 1.f;
+    return mvp * postMatrix;
+}
+
+GlRenderPass::GlRenderPass(GlRenderTarget* fbo): mFbo(fbo), mTasks(), mDrawDepth(0), mViewMatrix(tvg::identity())
+{
+    if (mFbo) mViewMatrix = _viewMatrix(mFbo->viewport);
+}
+
+GlRenderPass::GlRenderPass(GlRenderPass&& other): mFbo(other.mFbo), mTasks(), mDrawDepth(0), mViewMatrix(other.mViewMatrix)
 {
     mTasks.push(other.mTasks);
 
@@ -41,9 +56,7 @@ GlRenderPass::~GlRenderPass()
 {
     if (mTasks.empty()) return;
 
-    for(uint32_t i = 0; i < mTasks.count; i++) {
-        delete mTasks[i];
-    }
+    ARRAY_FOREACH(p, mTasks) delete(*p);
 
     mTasks.clear();
 }
@@ -51,21 +64,4 @@ GlRenderPass::~GlRenderPass()
 void GlRenderPass::addRenderTask(GlRenderTask* task)
 {
     mTasks.push(task);
-}
-
-void GlRenderPass::getMatrix(float *dst, const Matrix &matrix) const
-{
-    const auto& vp = getViewport();
-
-    Matrix postMatrix{};
-    identity(&postMatrix);
-    translate(&postMatrix, -vp.x, -vp.y);
-
-    auto m = postMatrix * matrix;
-
-    float modelMatrix[16];
-    GET_MATRIX44(m, modelMatrix);
-    MVP_MATRIX(vp.w, vp.h);
-
-    MULTIPLY_MATRIX(mvp, modelMatrix, dst);
 }

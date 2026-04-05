@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2023 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,212 +23,73 @@
 #ifndef _TVG_GL_TESSELLATOR_H_
 #define _TVG_GL_TESSELLATOR_H_
 
-#include <cstdint>
-
-#include "tvgGlGeometry.h"
-#include "tvgMath.h"
+#include "tvgGlCommon.h"
 
 namespace tvg
 {
 
-namespace detail
+class Stroker
 {
-
-class ObjectHeap;
-
-struct Vertex;
-struct Edge;
-struct Polygon;
-struct MonotonePolygon;
-struct VertexList;
-struct ActiveEdgeList;
-
-}  // namespace detail
-
-struct RenderShape;
-
-
-class Tessellator final
-{
-public:
-    Tessellator(Array<float>* points, Array<uint32_t>* indices);
-    ~Tessellator();
-
-    bool tessellate(const RenderShape *rshape, bool antialias = false);
-
-    void tessellate(const Array<const RenderShape*> &shapes);
-
-private:
-    void visitShape(const PathCommand *cmds, uint32_t cmd_count, const Point *pts, uint32_t pts_count);
-
-    void buildMesh();
-
-    void mergeVertices();
-
-    bool simplifyMesh();
-
-    bool tessMesh();
-
-    bool matchFillRule(int32_t winding);
-
-    detail::Edge *makeEdge(detail::Vertex* p1, detail::Vertex* p2);
-
-    bool checkIntersection(detail::Edge* left, detail::Edge* right, detail::ActiveEdgeList* ael,
-                           detail::Vertex** current);
-
-    bool splitEdge(detail::Edge* edge, detail::Vertex* v, detail::ActiveEdgeList* ael, detail::Vertex** current);
-
-    bool intersectPairEdge(detail::Edge* left, detail::Edge* right, detail::ActiveEdgeList* ael,
-                           detail::Vertex** current);
-
-    detail::Polygon *makePoly(detail::Vertex* v, int32_t winding);
-
-    void emitPoly(detail::MonotonePolygon* poly);
-
-    void emitTriangle(detail::Vertex* p1, detail::Vertex* p2, detail::Vertex* p3);
-private:
-    FillRule fillRule = FillRule::Winding;
-    std::unique_ptr<detail::ObjectHeap> pHeap;
-    Array<detail::VertexList*> outlines;
-    detail::VertexList* pMesh;
-    detail::Polygon* pPolygon;
-    Array<float>* resGlPoints;
-    Array<uint32_t>* resIndices;
-};
-
-class Stroker final
-{
-
     struct State
     {
-        GlPoint firstPt = {};
-        GlPoint firstPtDir = {};
-        GlPoint prevPt = {};
-        GlPoint prevPtDir = {};
+        Point firstPt;
+        Point firstPtDir;
+        Point prevPt;
+        Point prevPtDir;
     };
 public:
-    Stroker(Array<float>* points, Array<uint32_t>* indices, const Matrix& matrix);
-    ~Stroker() = default;
-
-    void stroke(const RenderShape *rshape);
-
+    Stroker(GlGeometryBuffer* buffer, float strokeWidth, StrokeCap cap, StrokeJoin join, float miterLimit = 4.0f);
+    void run(const RenderPath& path);
     RenderRegion bounds() const;
 
 private:
-    void doTrimStroke(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count, bool simultaneous, float start, float end);
-    void doStroke(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count);
-    void doDashStroke(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count,
-                      uint32_t dash_count, const float* dash_pattern, float dash_offset);
 
-    float strokeRadius() const
+    float radius() const
     {
-        return mStrokeWidth * 0.5f;
+        return mWidth * 0.5f;
     }
 
-    void strokeCap();
+    void cap();
+    void lineTo(const Point& curr);
+    void cubicTo(const Point& cnt1, const Point& cnt2, const Point& end);
+    void close();
+    void join(const Point& dir);
+    void round(const Point& prev, const Point& curr, const Point& center);
+    void miter(const Point& prev, const Point& curr, const Point& center);
+    void bevel(const Point& prev, const Point& curr, const Point& center);
+    void square(const Point& p, const Point& outDir);
+    void squarePoint(const Point& p);
+    void round(const Point& p, const Point& outDir);
+    void roundPoint(const Point& p);
 
-    void strokeLineTo(const GlPoint &curr);
-
-    void strokeCubicTo(const GlPoint &cnt1, const GlPoint &cnt2, const GlPoint &end);
-
-    void strokeClose();
-
-    void strokeJoin(const GlPoint &dir);
-
-    void strokeRound(const GlPoint &prev, const GlPoint &curr, const GlPoint &center);
-
-    void strokeMiter(const GlPoint &prev, const GlPoint &curr, const GlPoint &center);
-
-    void strokeBevel(const GlPoint &prev, const GlPoint &curr, const GlPoint &center);
-
-    void strokeSquare(const GlPoint& p, const GlPoint& outDir);
-
-    void strokeSquarePoint(const GlPoint& p);
-
-    void strokeRound(const GlPoint& p, const GlPoint& outDir);
-
-    void strokeRoundPoint(const GlPoint& p);
-private:
-    Array<float>* mResGlPoints;
-    Array<uint32_t>* mResIndices;
-    Matrix mMatrix;
-    float mStrokeWidth = MIN_GL_STROKE_WIDTH;
+    GlGeometryBuffer* mBuffer;
+    float mWidth = 0.0f;
     float mMiterLimit = 4.f;
-    StrokeCap mStrokeCap = StrokeCap::Square;
-    StrokeJoin mStrokeJoin = StrokeJoin::Bevel;
-    State mStrokeState = {};
-    GlPoint mLeftTop = {};
-    GlPoint mRightBottom = {};
-};
-
-class DashStroke
-{
-public:
-    DashStroke(Array<PathCommand>* cmds, Array<Point>* pts, uint32_t dash_count, const float* dash_pattern, float dash_offset);
-
-    ~DashStroke() = default;
-
-    void doStroke(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count);
-
-private:
-    void dashLineTo(const GlPoint &pt);
-    void dashCubicTo(const GlPoint &pt1, const GlPoint &pt2, const GlPoint &pt3);
-
-    void moveTo(const GlPoint &pt);
-    void lineTo(const GlPoint &pt);
-    void cubicTo(const GlPoint &pt1, const GlPoint &pt2, const GlPoint &pt3);
-
-private:
-    Array<PathCommand>* mCmds;
-    Array<Point>* mPts;
-    uint32_t mDashCount;
-    const float* mDashPattern;
-    float mDashOffset;
-    float mCurrLen;
-    int32_t mCurrIdx;
-    bool mCurOpGap;
-    bool mMove;
-    GlPoint mPtStart;
-    GlPoint mPtCur;
-};
-
-class PathTrim
-{
-public:
-    PathTrim(): mCmds(), mPts() {}
-    ~PathTrim() = default;
-    bool trim(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count, float start, float end);
-    const Array<PathCommand>& cmds() const { return mCmds; }
-    const Array<Point>& pts() const { return mPts; }
-
-private:
-    float pathLength(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count);
-    void trimPath(const PathCommand* cmds, uint32_t cmd_count, const Point* pts, uint32_t pts_count, float start, float end);
-
-private:
-    Array<PathCommand> mCmds;
-    Array<Point> mPts;
+    StrokeCap mCap = StrokeCap::Square;
+    StrokeJoin mJoin = StrokeJoin::Bevel;
+    State mState = {};
+    Point mLeftTop = {0.0f, 0.0f};
+    Point mRightBottom = {0.0f, 0.0f};
 };
 
 class BWTessellator
 {
 public:
-    BWTessellator(Array<float>* points, Array<uint32_t>* indices);
-    ~BWTessellator() = default;
-
-    void tessellate(const RenderShape *rshape, const Matrix& matrix);
-
+    BWTessellator(GlGeometryBuffer* buffer);
+    void tessellate(const RenderPath& path);
     RenderRegion bounds() const;
+    bool convex = true;
 
 private:
     uint32_t pushVertex(float x, float y);
     void pushTriangle(uint32_t a, uint32_t b, uint32_t c);
 
-private:
-    Array<float>* mResPoints;
-    Array<uint32_t>* mResIndices;
-    GlPoint mLeftTop = {};
-    GlPoint mRightBottom = {};
+    GlGeometryBuffer* mBuffer;
+    BBox bbox = {};
+    Point firstPt = {};
+    Point prevPt = {};
+    Point prevEdge = {};
+    int8_t winding = -1;   //0: unknown, 1: CW, -1: CCW
 };
 
 }  // namespace tvg

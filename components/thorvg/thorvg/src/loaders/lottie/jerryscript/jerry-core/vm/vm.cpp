@@ -610,7 +610,7 @@ vm_super_call (vm_frame_ctx_t *frame_ctx_p) /**< frame context */
 } /* vm_super_call */
 
 /**
- * Perform one of the following call/construct operation with spreaded argument list
+ * Perform one of the following call/construct operation with spread argument list
  *   - f(...args)
  *   - o.f(...args)
  *   - new O(...args)
@@ -2451,8 +2451,7 @@ vm_loop (vm_frame_ctx_t *frame_ctx_p) /**< frame context */
               goto error;
             }
 
-            bool set_result = ecma_fast_array_set_property (array_p, index++, value);
-            JERRY_ASSERT (set_result);
+            ecma_fast_array_set_property (array_p, index++, value);
             ecma_free_value (value);
           }
 

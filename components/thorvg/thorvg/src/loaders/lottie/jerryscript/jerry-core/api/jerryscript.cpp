@@ -217,6 +217,18 @@ jerry_value_is_object (const jerry_value_t value) /**< api value */
 } /* jerry_value_is_object */
 
 /**
+ * Check if the specified value is string.
+ *
+ * @return true  - if the specified value is string,
+ *         false - otherwise
+ */
+bool
+jerry_value_is_string (const jerry_value_t value) /**< api value */
+{
+  return ecma_is_value_string (value);
+} /* jerry_value_is_string */
+
+/**
  * Check if the specified value is undefined.
  *
  * @return true  - if the specified value is undefined,
@@ -233,10 +245,10 @@ jerry_value_is_undefined (const jerry_value_t value) /**< api value */
  *
  * @return stored number as double
  */
-double
+float
 jerry_value_as_number (const jerry_value_t value) /**< api value */
 {
-  return (double) ecma_get_number_from_value (value);
+  return (float) ecma_get_number_from_value (value);
 } /* jerry_value_as_number */
 
 /**
@@ -343,7 +355,7 @@ jerry_function_external (jerry_external_handler_t handler) /**< native handler
  * @return jerry_value_t created from the given double argument.
  */
 jerry_value_t
-jerry_number (double value) /**< double value from which a jerry_value_t will be created */
+jerry_number (float value) /**< double value from which a jerry_value_t will be created */
 {
   return ecma_make_number_value ((ecma_number_t) value);
 } /* jerry_number */

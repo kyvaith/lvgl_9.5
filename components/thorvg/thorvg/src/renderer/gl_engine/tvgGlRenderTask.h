@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2024 the ThorVG project. All rights reserved.
+ * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,6 @@
 
 #ifndef _TVG_GL_RENDER_TASK_H_
 #define _TVG_GL_RENDER_TASK_H_
-
-#include <memory>
-#include <vector>
 
 #include "tvgGlCommon.h"
 #include "tvgGlProgram.h"
@@ -53,20 +50,20 @@ struct GlBindingResource
      * Can be a uniform location for a texture
      * Can be a uniform buffer binding index for a uniform block
      */
-    uint32_t        bindPoint = {};
-    uint32_t        location = {};
-    GLuint          gBufferId = {};
-    uint32_t        bufferOffset = {};
-    uint32_t        bufferRange = {};
+    uint32_t        bindPoint = 0;
+    GLint           location = 0;
+    GLuint          gBufferId = 0;
+    uint32_t        bufferOffset = 0;
+    uint32_t        bufferRange = 0;
 
     GlBindingResource() = default;
 
-    GlBindingResource(uint32_t index, uint32_t location, uint32_t bufferId, uint32_t offset, uint32_t range)
+    GlBindingResource(uint32_t index, GLint location, GLuint bufferId, uint32_t offset, uint32_t range)
         : type(GlBindingType::kUniformBuffer), bindPoint(index), location(location), gBufferId(bufferId), bufferOffset(offset), bufferRange(range)
     {
     }
 
-    GlBindingResource(uint32_t bindPoint, uint32_t texId, uint32_t location)
+    GlBindingResource(uint32_t bindPoint, GLuint texId, GLint location)
         : type(GlBindingType::kTexture), bindPoint(bindPoint), location(location), gBufferId(texId)
     {
     }
@@ -87,6 +84,7 @@ public:
     void setDrawRange(uint32_t offset, uint32_t count);
     void setViewport(const RenderRegion& viewport);
     void setDrawDepth(int32_t depth) { mDrawDepth = static_cast<float>(depth); }
+    void setViewMatrix(const Matrix& matrix) { mViewMatrix = matrix; mUseViewMatrix = true; }
     virtual void normalizeDrawDepth(int32_t maxDepth) { mDrawDepth /= static_cast<float>(maxDepth);  }
 
     GlProgram* getProgram() { return mProgram; }
@@ -100,6 +98,8 @@ private:
     Array<GlVertexLayout> mVertexLayout = {};
     Array<GlBindingResource> mBindingResources = {};
     float mDrawDepth = 0.f;
+    Matrix mViewMatrix = {};
+    bool mUseViewMatrix = false;
 };
 
 class GlStencilCoverTask : public GlRenderTask
@@ -117,7 +117,7 @@ private:
     GlStencilMode mStencilMode;
 };
 
-class GlRenderTarget;
+struct GlRenderTarget;
 
 class GlComposeTask : public GlRenderTask 
 {
@@ -129,14 +129,14 @@ public:
 
     void setRenderSize(uint32_t width, uint32_t height) { mRenderWidth = width; mRenderHeight = height; }
 
+    bool mClearBuffer = true;
+
 protected:
     GLuint getTargetFbo() { return mTargetFbo; }
-
     GLuint getSelfFbo();
-
     GLuint getResolveFboId();
-
     void onResolve();
+
 private:
     GLuint mTargetFbo;
     GlRenderTarget* mFbo;
@@ -179,6 +179,25 @@ private:
     uint32_t mParentHeight = 0;
 };
 
+class GlSceneBlendTask : public GlComposeTask
+{
+public:
+    GlSceneBlendTask(GlProgram*, GLuint target, GlRenderTarget* fbo, Array<GlRenderTask*>&& tasks);
+    ~GlSceneBlendTask() override;
+
+    void setParentSize(uint32_t width, uint32_t height) { mParentWidth = width; mParentHeight = height; }
+    void setSrcTarget(GlRenderTarget* srcFbo) { mSrcFbo = srcFbo; }
+    void setDstCopy(GlRenderTarget* dstCopyFbo) { mDstCopyFbo = dstCopyFbo; }
+
+    void run() override;
+
+private:
+    GlRenderTarget* mSrcFbo = nullptr;
+    GlRenderTarget* mDstCopyFbo = nullptr;
+    uint32_t mParentWidth = 0;
+    uint32_t mParentHeight = 0;
+};
+
 class GlClipTask : public GlRenderTask
 {
 public:
@@ -193,15 +212,17 @@ private:
     GlRenderTask* mMaskTask;
 };
 
-class GlSimpleBlendTask : public GlRenderTask
+class GlDirectBlendTask : public GlRenderTask
 {
 public:
-    GlSimpleBlendTask(BlendMethod method, GlProgram* program);
-    ~GlSimpleBlendTask() override = default;
+    GlDirectBlendTask(GlProgram* program, GlRenderTarget* dstFbo, GlRenderTarget* dstCopyFbo, const RenderRegion& copyRegion);
+    ~GlDirectBlendTask() override = default;
 
     void run() override;
 private:
-    BlendMethod mBlendMethod;
+    GlRenderTarget* mDstFbo = nullptr;
+    GlRenderTarget* mDstCopyFbo = nullptr;
+    RenderRegion mCopyRegion{};
 };
 
 class GlComplexBlendTask: public GlRenderTask
@@ -218,6 +239,55 @@ private:
     GlRenderTarget* mDstCopyFbo;
     GlRenderTask* mStencilTask;
     GlComposeTask* mComposeTask;
+};
+
+class GlGaussianBlurTask: public GlRenderTask
+{
+public:
+    GlGaussianBlurTask(GlRenderTarget* dstFbo, GlRenderTarget* dstCopyFbo0, GlRenderTarget* dstCopyFbo1): 
+        GlRenderTask(nullptr), mDstFbo(dstFbo), mDstCopyFbo0(dstCopyFbo0), mDstCopyFbo1(dstCopyFbo1) {};
+    ~GlGaussianBlurTask(){ delete horzTask; delete vertTask; };
+
+    void run() override;
+
+    GlRenderTask* horzTask;
+    GlRenderTask* vertTask;
+    RenderEffectGaussianBlur* effect;
+private:
+    GlRenderTarget* mDstFbo;
+    GlRenderTarget* mDstCopyFbo0;
+    GlRenderTarget* mDstCopyFbo1;
+};
+
+class GlEffectDropShadowTask: public GlRenderTask
+{
+public:
+    GlEffectDropShadowTask(GlProgram* program, GlRenderTarget* dstFbo, GlRenderTarget* dstCopyFbo0, GlRenderTarget* dstCopyFbo1): 
+        GlRenderTask(program), mDstFbo(dstFbo), mDstCopyFbo0(dstCopyFbo0), mDstCopyFbo1(dstCopyFbo1) {};
+    ~GlEffectDropShadowTask(){ delete horzTask; delete vertTask; };
+
+    void run() override;
+
+    GlRenderTask* horzTask;
+    GlRenderTask* vertTask;
+    RenderEffectDropShadow* effect;
+private:
+    GlRenderTarget* mDstFbo;
+    GlRenderTarget* mDstCopyFbo0;
+    GlRenderTarget* mDstCopyFbo1;
+};
+
+class GlEffectColorTransformTask: public GlRenderTask
+{
+public:
+    GlEffectColorTransformTask(GlProgram* program, GlRenderTarget* dstFbo, GlRenderTarget* dstCopyFbo):
+        GlRenderTask(program), mDstFbo(dstFbo), mDstCopyFbo(dstCopyFbo) {};
+    ~GlEffectColorTransformTask() {};
+
+    void run() override;
+private:
+    GlRenderTarget* mDstFbo;
+    GlRenderTarget* mDstCopyFbo;
 };
 
 #endif /* _TVG_GL_RENDER_TASK_H_ */
