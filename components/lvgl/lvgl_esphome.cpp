@@ -213,11 +213,27 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
   switch (this->rotation) {
     case display::DISPLAY_ROTATION_90_DEGREES:
+#if LV_COLOR_DEPTH == 32
+      {
+        // RGB888: 3 bytes per pixel
+        auto *dst8 = reinterpret_cast<uint8_t *>(this->rotate_buf_);
+        auto *ptr8 = reinterpret_cast<const uint8_t *>(ptr);
+        for (lv_coord_t x = height; x-- != 0;) {
+          for (lv_coord_t y = 0; y != width; y++) {
+            size_t out = (size_t(y) * height_rounded + x) * 3;
+            dst8[out + 0] = *ptr8++;
+            dst8[out + 1] = *ptr8++;
+            dst8[out + 2] = *ptr8++;
+          }
+        }
+      }
+#else
       for (lv_coord_t x = height; x-- != 0;) {
         for (lv_coord_t y = 0; y != width; y++) {
           dst[y * height_rounded + x] = *ptr++;
         }
       }
+#endif
       y1 = x1;
       x1 = this->height_ - area->y1 - height;
       height = width;
@@ -225,21 +241,53 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       break;
 
     case display::DISPLAY_ROTATION_180_DEGREES:
+#if LV_COLOR_DEPTH == 32
+      {
+        // RGB888: 3 bytes per pixel
+        auto *dst8 = reinterpret_cast<uint8_t *>(this->rotate_buf_);
+        auto *ptr8 = reinterpret_cast<const uint8_t *>(ptr);
+        for (lv_coord_t y = height; y-- != 0;) {
+          for (lv_coord_t x = width; x-- != 0;) {
+            size_t out = (size_t(y) * width + x) * 3;
+            dst8[out + 0] = *ptr8++;
+            dst8[out + 1] = *ptr8++;
+            dst8[out + 2] = *ptr8++;
+          }
+        }
+      }
+#else
       for (lv_coord_t y = height; y-- != 0;) {
         for (lv_coord_t x = width; x-- != 0;) {
           dst[y * width + x] = *ptr++;
         }
       }
+#endif
       x1 = this->width_ - x1 - width;
       y1 = this->height_ - y1 - height;
       break;
 
     case display::DISPLAY_ROTATION_270_DEGREES:
+#if LV_COLOR_DEPTH == 32
+      {
+        // RGB888: 3 bytes per pixel
+        auto *dst8 = reinterpret_cast<uint8_t *>(this->rotate_buf_);
+        auto *ptr8 = reinterpret_cast<const uint8_t *>(ptr);
+        for (lv_coord_t x = 0; x != height; x++) {
+          for (lv_coord_t y = width; y-- != 0;) {
+            size_t out = (size_t(y) * height_rounded + x) * 3;
+            dst8[out + 0] = *ptr8++;
+            dst8[out + 1] = *ptr8++;
+            dst8[out + 2] = *ptr8++;
+          }
+        }
+      }
+#else
       for (lv_coord_t x = 0; x != height; x++) {
         for (lv_coord_t y = width; y-- != 0;) {
           dst[y * height_rounded + x] = *ptr++;
         }
       }
+#endif
       x1 = y1;
       y1 = this->width_ - area->x1 - width;
       height = width;
@@ -566,21 +614,39 @@ void LvglComponent::setup() {
   auto frac = this->buffer_frac_;
   if (frac == 0)
     frac = 1;
-  auto buf_bytes = width * height / frac * LV_COLOR_DEPTH / 8;
+  // LV_COLOR_FORMAT_RGB888 uses 3 bytes/pixel even when LV_COLOR_DEPTH=32
+#if LV_COLOR_DEPTH == 32
+  constexpr size_t BYTES_PER_PIXEL = 3;  // RGB888
+#else
+  constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
+#endif
+  auto buf_bytes = width * height / frac * BYTES_PER_PIXEL;
   // Fix for issue #9868: Align buffer size to 64 bytes for PPA/cache compatibility
   // on ESP32-P4. esp_cache_msync() requires both address AND size to be cache-line
   // aligned (64 bytes). Without this, PPA operations fail on PSRAM buffers.
   constexpr size_t BUF_SIZE_ALIGN = 64;
   buf_bytes = (buf_bytes + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
   void *buffer = nullptr;
-  // CRITICAL: Always use lv_malloc_core() which guarantees 64-byte alignment
-  // Don't use malloc() as it may not be aligned correctly for LVGL 9.5
-  buffer = lv_malloc_core(buf_bytes);  // NOLINT
+
+  // Helper lambda to allocate an aligned DMA-capable buffer.
+  // When USE_LVGL_PPA is defined, we try internal DMA-capable SRAM first
+  // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
+  auto alloc_draw_buf = [](size_t sz) -> void * {
+#if defined(USE_LVGL_PPA) && defined(USE_ESP32)
+    void *p = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (p != nullptr)
+      return p;
+    // Fall back: PSRAM is DMA-accessible on ESP32-P4 via cache (with sync)
+#endif
+    return lv_malloc_core(sz);
+  };
+
+  buffer = alloc_draw_buf(buf_bytes);
   // if specific buffer size not set and can't get 100%, try for a smaller one
   if (buffer == nullptr && this->buffer_frac_ == 0) {
     frac = MIN_BUFFER_FRAC;
     buf_bytes /= MIN_BUFFER_FRAC;
-    buffer = lv_malloc_core(buf_bytes);  // NOLINT
+    buffer = alloc_draw_buf(buf_bytes);
   }
   this->buffer_frac_ = frac;
   if (buffer == nullptr) {
@@ -590,7 +656,12 @@ void LvglComponent::setup() {
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
+#if LV_COLOR_DEPTH == 32
+  // RGB888: 3 bytes per pixel, fully supported by PPA as destination
+  lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB888);
+#else
   lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
+#endif
   // CRITICAL: Set user_data BEFORE flush_cb, as flush_cb uses user_data
   lv_display_set_user_data(this->disp_, this);
   lv_display_set_flush_cb(this->disp_, static_flush_cb);
@@ -600,7 +671,7 @@ void LvglComponent::setup() {
   this->buf_bytes_ = buf_bytes;
   this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
-    this->rotate_buf_ = static_cast<lv_color_t *>(lv_malloc_core(buf_bytes));
+    this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes));
     if (this->rotate_buf_ == nullptr) {
       this->status_set_error(LOG_STR("Memory allocation failure"));
       this->mark_failed();
