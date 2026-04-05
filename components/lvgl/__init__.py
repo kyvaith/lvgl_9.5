@@ -691,6 +691,9 @@ async def to_code(configs):
     ):
         df.get_data(df.KEY_LV_DEFINES)["LV_USE_LOG"] = "0"
 
+    if configs[0].get(df.CONF_THEME, {}).get(df.CONF_DARK_MODE):
+        df.add_define("LV_THEME_DEFAULT_DARK", "1")
+
     if {
         "drop_shadow_color",
         "drop_shadow_offset_x",
@@ -760,8 +763,11 @@ def add_hello_world(config):
 def _theme_schema(value):
     return cv.Schema(
         {
-            cv.Optional(name): obj_schema(w).extend(FULL_STYLE_SCHEMA)
-            for name, w in WIDGET_TYPES.items()
+            cv.Optional(df.CONF_DARK_MODE, default=False): cv.boolean,
+            **{
+                cv.Optional(name): obj_schema(w).extend(FULL_STYLE_SCHEMA)
+                for name, w in WIDGET_TYPES.items()
+            },
         }
     )(value)
 
