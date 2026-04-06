@@ -7,6 +7,7 @@
 #include "core/lv_obj_class_private.h"
 
 #ifdef USE_LVGL_PPA
+#include "driver/ppa.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 }
@@ -17,6 +18,91 @@ void lv_draw_ppa_init(void);
 
 namespace esphome::lvgl {
 static const char *const TAG = "lvgl";
+
+#ifdef USE_LVGL_PPA
+/// Dedicated PPA SRM client for display framebuffer rotation (separate from LVGL draw unit).
+static ppa_client_handle_t s_display_srm_client = nullptr;
+
+/**
+ * Attempt to rotate a display framebuffer using the PPA SRM hardware.
+ * Returns true if PPA rotation succeeded, false if software fallback is needed.
+ *
+ * Angle mapping (PPA uses CCW, ESPHome uses CW):
+ *   90° CW  → PPA_SRM_ROTATION_ANGLE_270 (270° CCW)
+ *   180°    → PPA_SRM_ROTATION_ANGLE_180
+ *   270° CW → PPA_SRM_ROTATION_ANGLE_90  (90° CCW)
+ */
+static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_t h,
+                                   display::DisplayRotation rot) {
+  if (s_display_srm_client == nullptr || w < 2 || h < 2)
+    return false;
+
+  ppa_srm_rotation_angle_t ppa_angle;
+  int32_t out_w, out_h;
+  switch (rot) {
+    case display::DISPLAY_ROTATION_90_DEGREES:
+      ppa_angle = PPA_SRM_ROTATION_ANGLE_270;
+      out_w = h;
+      out_h = w;
+      break;
+    case display::DISPLAY_ROTATION_180_DEGREES:
+      ppa_angle = PPA_SRM_ROTATION_ANGLE_180;
+      out_w = w;
+      out_h = h;
+      break;
+    case display::DISPLAY_ROTATION_270_DEGREES:
+      ppa_angle = PPA_SRM_ROTATION_ANGLE_90;
+      out_w = h;
+      out_h = w;
+      break;
+    default:
+      return false;
+  }
+
+#if LV_COLOR_DEPTH == 32
+  constexpr ppa_srm_color_mode_t PPA_CM = PPA_SRM_COLOR_MODE_RGB888;
+  constexpr size_t BPP = 3;
+#else
+  constexpr ppa_srm_color_mode_t PPA_CM = PPA_SRM_COLOR_MODE_RGB565;
+  constexpr size_t BPP = 2;
+#endif
+
+  ppa_srm_oper_config_t cfg = {};
+  // Input block: full area from LVGL draw buffer
+  cfg.in.buffer = (void *) src;
+  cfg.in.pic_w = w;
+  cfg.in.pic_h = h;
+  cfg.in.block_w = w;
+  cfg.in.block_h = h;
+  cfg.in.block_offset_x = 0;
+  cfg.in.block_offset_y = 0;
+  cfg.in.srm_cm = PPA_CM;
+  // Output: rotation buffer, tightly packed
+  cfg.out.buffer = dst;
+  cfg.out.buffer_size = (size_t) out_w * out_h * BPP;
+  cfg.out.pic_w = out_w;
+  cfg.out.pic_h = out_h;
+  cfg.out.block_offset_x = 0;
+  cfg.out.block_offset_y = 0;
+  cfg.out.srm_cm = PPA_CM;
+  // Rotation only, no scale/mirror
+  cfg.rotation_angle = ppa_angle;
+  cfg.scale_x = 1.0f;
+  cfg.scale_y = 1.0f;
+  cfg.mirror_x = false;
+  cfg.mirror_y = false;
+  cfg.rgb_swap = false;
+  cfg.byte_swap = false;
+  cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+  cfg.mode = PPA_TRANS_MODE_BLOCKING;
+
+  esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "PPA display rotation failed (err=%d), falling back to SW", ret);
+  }
+  return ret == ESP_OK;
+}
+#endif  // USE_LVGL_PPA
 
 static const size_t MIN_BUFFER_FRAC = 8;
 
@@ -140,6 +226,21 @@ void LvglComponent::esphome_lvgl_init() {
   // Uses custom PPA code (based on https://github.com/lvgl/lvgl/pull/9162)
   // LVGL 9.5 includes this fix natively; kept as fallback
   lv_draw_ppa_init();
+
+  // Register a dedicated PPA SRM client for display framebuffer rotation.
+  // Kept separate from the LVGL draw unit's SRM client to avoid contention.
+  if (s_display_srm_client == nullptr) {
+    ppa_client_config_t srm_cfg = {};
+    srm_cfg.oper_type = PPA_OPERATION_SRM;
+    srm_cfg.max_pending_trans_num = 1;
+    srm_cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    if (ppa_register_client(&srm_cfg, &s_display_srm_client) == ESP_OK) {
+      ESP_LOGI(TAG, "PPA display rotation SRM client registered");
+    } else {
+      ESP_LOGW(TAG, "PPA display rotation SRM client failed, SW rotation will be used");
+      s_display_srm_client = nullptr;
+    }
+  }
 #endif
   lv_tick_set_cb([] { return millis(); });
   lv_update_event = static_cast<lv_event_code_t>(lv_event_register_id());
@@ -211,6 +312,44 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto x1 = area->x1;
   auto y1 = area->y1;
   auto *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+
+#ifdef USE_LVGL_PPA
+  // Try PPA hardware rotation first (zero CPU cost, ~10x faster than SW loops).
+  // Falls back to software automatically if PPA rejects the operation.
+  if (this->use_ppa_rotation_ && this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
+    if (ppa_rotate_display_buf(ptr, this->rotate_buf_, width, height, this->rotation)) {
+      dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+      // Coordinate update is identical to the software path (same output geometry)
+      switch (this->rotation) {
+        case display::DISPLAY_ROTATION_90_DEGREES:
+          y1 = x1;
+          x1 = this->height_ - area->y1 - height;
+          height = width;
+          width = height_rounded;
+          break;
+        case display::DISPLAY_ROTATION_180_DEGREES:
+          x1 = this->width_ - x1 - width;
+          y1 = this->height_ - y1 - height;
+          break;
+        case display::DISPLAY_ROTATION_270_DEGREES:
+          x1 = y1;
+          y1 = this->width_ - area->x1 - width;
+          height = width;
+          width = height_rounded;
+          break;
+        default:
+          break;
+      }
+      for (auto *display : this->displays_) {
+        display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
+                                this->big_endian_);
+      }
+      return;
+    }
+    // PPA failed → fall through to software rotation below
+  }
+#endif  // USE_LVGL_PPA
+
   switch (this->rotation) {
     case display::DISPLAY_ROTATION_90_DEGREES:
 #if LV_COLOR_DEPTH == 32
@@ -677,6 +816,14 @@ void LvglComponent::setup() {
       this->mark_failed();
       return;
     }
+#ifdef USE_LVGL_PPA
+    // Enable PPA-accelerated rotation if the SRM client was registered successfully.
+    // ppa_rotate_display_buf() falls back to SW automatically on unsupported cases.
+    this->use_ppa_rotation_ = (s_display_srm_client != nullptr);
+    if (this->use_ppa_rotation_) {
+      ESP_LOGI(TAG, "Display rotation will use PPA SRM hardware acceleration");
+    }
+#endif
   }
   if (this->draw_start_callback_ != nullptr) {
     lv_display_add_event_cb(this->disp_, render_start_cb, LV_EVENT_RENDER_START, this);

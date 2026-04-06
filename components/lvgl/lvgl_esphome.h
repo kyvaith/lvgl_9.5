@@ -253,6 +253,7 @@ class LvglComponent : public PollingComponent {
   bool buffers_configured_{false};  // Track if lv_display_set_buffers() has been called
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};         // Track if loop() has been called - safe for LVGL ops
+  bool use_ppa_rotation_{false};     // True when PPA SRM client is available for HW rotation
 };
 
 class IdleTrigger : public Trigger<> {
