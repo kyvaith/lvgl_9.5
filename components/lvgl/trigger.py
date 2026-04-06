@@ -9,16 +9,21 @@ from esphome.const import (
     CONF_X,
     CONF_Y,
 )
-from esphome.cpp_generator import new_Pvariable
+from esphome.cpp_generator import MockObj, new_Pvariable
 from esphome.cpp_helpers import register_component
+from esphome.cpp_types import nullptr
 
 from .defines import (
     CONF_ALIGN,
     CONF_ALIGN_TO,
     CONF_ALIGN_TO_LAMBDA_ID,
     DIRECTIONS,
+    LV_DISPLAY_EVENT_MAP,
+    LV_DISPLAY_EVENT_TRIGGERS,
     LV_EVENT_MAP,
     LV_EVENT_TRIGGERS,
+    LV_SCREEN_EVENT_MAP,
+    LV_SCREEN_EVENT_TRIGGERS,
     SWIPE_TRIGGERS,
     literal,
 )
@@ -31,6 +36,7 @@ from .lvcode import (
     lv,
     lv_add,
     lv_event_t_ptr,
+    lv_expr,
     lvgl_static,
 )
 from .types import LV_EVENT
@@ -50,25 +56,24 @@ async def generate_triggers():
     Must be done after all widgets completed
     """
 
+    all_triggers = (
+        LV_EVENT_TRIGGERS + LV_DISPLAY_EVENT_TRIGGERS + LV_SCREEN_EVENT_TRIGGERS
+    )
     for w in widget_map.values():
+        config = w.config
         if isinstance(w.type, LvScrActType):
             w = get_screen_active(w.var)
 
-        if w.config:
+        if config:
             for event, conf in {
-                event: conf
-                for event, conf in w.config.items()
-                if event in LV_EVENT_TRIGGERS
+                event: conf for event, conf in config.items() if event in all_triggers
             }.items():
                 conf = conf[0]
                 w.add_flag("LV_OBJ_FLAG_CLICKABLE")
-                event = literal("LV_EVENT_" + LV_EVENT_MAP[event[3:].upper()])
                 await add_trigger(conf, w, event)
 
             for event, conf in {
-                event: conf
-                for event, conf in w.config.items()
-                if event in SWIPE_TRIGGERS
+                event: conf for event, conf in config.items() if event in SWIPE_TRIGGERS
             }.items():
                 conf = conf[0]
                 dir = event[9:].upper()
@@ -81,12 +86,12 @@ async def generate_triggers():
                 await add_trigger(
                     conf,
                     w,
-                    literal("LV_EVENT_GESTURE"),
+                    "GESTURE",
                     is_selected=selected,
                     wait_release=True,
                 )
 
-            for conf in w.config.get(CONF_ON_VALUE, ()):
+            for conf in config.get(CONF_ON_VALUE, ()):
                 await add_trigger(
                     conf,
                     w,
@@ -95,7 +100,7 @@ async def generate_triggers():
                     UPDATE_EVENT,
                 )
 
-            await add_on_boot_triggers(w.config.get(CONF_ON_BOOT, ()))
+            await add_on_boot_triggers(config.get(CONF_ON_BOOT, ()))
 
 
 async def generate_align_tos(config: dict):
@@ -124,6 +129,17 @@ async def generate_align_tos(config: dict):
             await register_component(var, {})
 
 
+TRIGGER_MAP = LV_EVENT_MAP | LV_DISPLAY_EVENT_MAP | LV_SCREEN_EVENT_MAP
+DISPLAY_TRIGGERS = set(LV_DISPLAY_EVENT_TRIGGERS)
+
+
+def _get_event_literal(trigger: str | MockObj) -> MockObj:
+    if isinstance(trigger, MockObj):
+        return trigger
+    trigger = trigger.removeprefix("on_")
+    return literal("LV_EVENT_" + TRIGGER_MAP[trigger.upper()])
+
+
 async def add_trigger(conf, w, *events, is_selected=None, wait_release=False):
     is_selected = is_selected or w.is_selected()
     tid = conf[CONF_TRIGGER_ID]
@@ -136,4 +152,12 @@ async def add_trigger(conf, w, *events, is_selected=None, wait_release=False):
             if wait_release:
                 lv_add(RawStatement("lv_indev_wait_release(lv_indev_active());"))
             lv_add(trigger.trigger(*value, literal("event")))
-    lv_add(lvgl_static.add_event_cb(w.obj, await context.get_lambda(), *events))
+    callback = await context.get_lambda()
+    event_literals = [_get_event_literal(event) for event in events]
+    if isinstance(events[0], str) and events[0] in DISPLAY_TRIGGERS:
+        assert len(events) == 1
+        lv.display_add_event_cb(
+            lv_expr.obj_get_display(w.obj), callback, event_literals[0], nullptr
+        )
+    else:
+        lv_add(lvgl_static.add_event_cb(w.obj, callback, *event_literals))
