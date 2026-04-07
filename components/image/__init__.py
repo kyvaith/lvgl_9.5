@@ -760,6 +760,23 @@ async def write_image(config, all_frames=False):
     return prog_arr, width, height, image_type, trans_value, frame_count
 
 
+def add_metadata(id, width, height, image_type, transparency):
+    """
+    Register image metadata so other components (e.g. ``online_image``,
+    ``lvgl``) can look up an image's dimensions, type and transparency by id.
+
+    This mirrors the helper introduced in upstream ESPHome's ``image``
+    component, but stores the data in the flat dict layout already used
+    elsewhere in this fork.
+    """
+    CORE.data.setdefault(DOMAIN, {})[str(id)] = {
+        CONF_WIDTH: width,
+        CONF_HEIGHT: height,
+        CONF_TYPE: image_type,
+        CONF_TRANSPARENCY: transparency,
+    }
+
+
 async def to_code(config):
     cg.add_define("USE_IMAGE")
     CORE.data[DOMAIN] = {}
@@ -769,9 +786,4 @@ async def to_code(config):
         cg.new_Pvariable(
             entry[CONF_ID], prog_arr, width, height, image_type, trans_value
         )
-        CORE.data[DOMAIN][entry[CONF_ID].id] = {
-            CONF_WIDTH: width,
-            CONF_HEIGHT: height,
-            CONF_TYPE: image_type,
-            CONF_TRANSPARENCY: trans_value,
-        }
+        add_metadata(entry[CONF_ID].id, width, height, image_type, trans_value)
