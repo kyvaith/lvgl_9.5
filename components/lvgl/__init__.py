@@ -153,6 +153,24 @@ def final_validation(config_list):
     for config in config_list:
         if (pages := config.get(CONF_PAGES)) and all(p[df.CONF_SKIP] for p in pages):
             raise cv.Invalid("At least one page must not be skipped")
+        # Resolve color_depth before the display loop.
+        # If the user didn't set it, auto-detect from the first MIPI DSI display found.
+        user_set_depth = CONF_COLOR_DEPTH in config
+        if not user_set_depth:
+            has_mipi = any(
+                global_config.get_config_for_path(
+                    global_config.get_path_for_id(did)[:-1]
+                ).get("platform", "") == "mipi_dsi"
+                for did in config[df.CONF_DISPLAYS]
+            )
+            if has_mipi:
+                config[CONF_COLOR_DEPTH] = 32
+                df.LOGGER.info(
+                    "MIPI DSI display detected: auto-selecting color_depth=32 (RGB888). "
+                    "Set 'color_depth: 16' in your lvgl: config to use RGB565 instead."
+                )
+            else:
+                config[CONF_COLOR_DEPTH] = 16
         for display_id in config[df.CONF_DISPLAYS]:
             path = global_config.get_path_for_id(display_id)[:-1]
             display = global_config.get_config_for_path(path)
@@ -168,16 +186,12 @@ def final_validation(config_list):
                 config[CONF_DRAW_ROUNDING] = max(
                     draw_rounding, config[CONF_DRAW_ROUNDING]
                 )
-            # Auto-detect RGB888 for MIPI DSI displays (ESP32-P4 native 24-bit).
-            # MIPI DSI always outputs RGB888 — using RGB565 wastes color quality
-            # and prevents PPA from working at full efficiency.
-            # Only auto-upgrade when the user has not explicitly set color_depth: 32.
+            # Warn if user explicitly chose 16-bit on MIPI DSI.
             display_platform = display.get("platform", "")
-            if display_platform == "mipi_dsi" and config[CONF_COLOR_DEPTH] == 16:
-                config[CONF_COLOR_DEPTH] = 32
-                df.LOGGER.info(
-                    "MIPI DSI display detected: auto-selecting color_depth=32 (RGB888). "
-                    "Add 'color_depth: 32' to your lvgl: config to suppress this message."
+            if user_set_depth and config[CONF_COLOR_DEPTH] == 16 and display_platform == "mipi_dsi":
+                df.LOGGER.warning(
+                    "color_depth: 16 (RGB565) with MIPI DSI: PPA acceleration may be "
+                    "reduced. Consider color_depth: 32 for best performance."
                 )
         buffer_frac = config[CONF_BUFFER_SIZE]
         if CORE.is_esp32 and buffer_frac > 0.5 and PSRAM_DOMAIN not in global_config:
@@ -574,7 +588,7 @@ LVGL_SCHEMA = cv.All(
             {
                 cv.GenerateID(CONF_ID): cv.declare_id(LvglComponent),
                 cv.GenerateID(df.CONF_DISPLAYS): display_schema,
-                cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(16, 32),
+                cv.Optional(CONF_COLOR_DEPTH): cv.one_of(16, 32),
                 cv.Optional(
                     df.CONF_DEFAULT_FONT, default="montserrat_14"
                 ): lvalid.lv_font,
