@@ -2209,30 +2209,27 @@ void LvglComponent::write_random_() {
   int iterations = 6 - lv_display_get_inactive_time(this->disp_) / 60000;
   if (iterations <= 0)
     iterations = 1;
+  int16_t width = lv_display_get_horizontal_resolution(this->disp_);
+  int16_t height = lv_display_get_vertical_resolution(this->disp_);
   while (iterations-- != 0) {
-    auto col = random_uint32() % this->width_;
+    int32_t col = random_uint32() % width;
     col = col / this->draw_rounding * this->draw_rounding;
-    auto row = random_uint32() % this->height_;
+    int32_t row = random_uint32() % height;
     row = row / this->draw_rounding * this->draw_rounding;
-    auto size = ((random_uint32() % 32) / this->draw_rounding + 2) * this->draw_rounding - 1;
-    // clamp size so the square fits within the draw buffer
-    if ((size + 1) * (size + 1) > this->draw_buf_.size)
-      size = static_cast<decltype(size)>(sqrtf(this->draw_buf_.size)) - 1;
-    lv_area_t area;
-    area.x1 = col;
-    area.y1 = row;
-    area.x2 = col + size;
-    area.y2 = row + size;
-    if (area.x2 >= this->width_)
-      area.x2 = this->width_ - 1;
-    if (area.y2 >= this->height_)
-      area.y2 = this->height_ - 1;
+    // size will be between 8 and 32, and a multiple of draw_rounding
+    int32_t size = (random_uint32() % 25 + 8) / this->draw_rounding * this->draw_rounding;
+    lv_area_t area{.x1 = col, .y1 = row, .x2 = col + size - 1, .y2 = row + size - 1};
+    // clip to display bounds just in case
+    if (area.x2 >= width)
+      area.x2 = width - 1;
+    if (area.y2 >= height)
+      area.y2 = height - 1;
 
     size_t line_len = lv_area_get_width(&area) * lv_area_get_height(&area) / 2;
     for (size_t i = 0; i != line_len; i++) {
-      ((uint32_t *) (this->draw_buf_))[i] = random_uint32();
+      reinterpret_cast<uint32_t *>(this->draw_buf_)[i] = random_uint32();
     }
-    this->draw_buffer_(&area, (lv_color_data *) this->draw_buf_);
+    this->draw_buffer_(&area, reinterpret_cast<lv_color_data *>(this->draw_buf_));
   }
 }
 
