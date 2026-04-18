@@ -1367,7 +1367,8 @@ script:
           id: fw_selected_lbl
           text: "(no file selected)"
       - lvgl.widget.disable: fw_flash_btn
-      - script.execute: fw_refresh_list
+      - script.execute:
+          id: fw_refresh_list
 
   # Trigger the firmware flash using the OpenDPS hub
   - id: fw_flash
@@ -1410,7 +1411,8 @@ interval:
           condition:
             lambda: 'return id(g_fw_flashing);'
           then:
-            - script.execute: fw_poll_status
+            - script.execute:
+                id: fw_poll_status
 
 lvgl:
   displays: dsi_display
@@ -1604,7 +1606,8 @@ lvgl:
                 radius: 0
                 on_click:
                   - lvgl.page.show: page_firmware
-                  - script.execute: fw_refresh_list
+                  - script.execute:
+                      id: fw_refresh_list
                   - lambda: |-
                       lv_obj_set_style_bg_color(id(tab_btn_firmware), lv_color_hex(0x1A1A1A), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_firmware), (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
@@ -2679,7 +2682,8 @@ lvgl:
                           - globals.set:
                               id: g_fw_filter_bin
                               value: !lambda 'return x;'
-                          - script.execute: fw_refresh_list
+                          - script.execute:
+                              id: fw_refresh_list
 
         # ---- File browser (right column) x=236 y=88 w=780 h=360 ----
         - obj:
@@ -2726,7 +2730,8 @@ lvgl:
                         bg_color: 0x2A2A2A
                         radius: 4
                         on_click:
-                          - script.execute: fw_refresh_list
+                          - script.execute:
+                              id: fw_refresh_list
                         widgets:
                           - label:
                               align: CENTER
@@ -3043,7 +3048,8 @@ lvgl:
                               radius: 6
                               on_click:
                                 - lvgl.widget.hide: fw_confirm_overlay
-                                - script.execute: fw_flash
+                                - script.execute:
+                                    id: fw_flash
                               widgets:
                                 - label:
                                     align: CENTER
