@@ -1293,6 +1293,36 @@ script:
           #include <vector>
           #include <algorithm>
 
+          // Event callback attached to every button added to the list.
+          // user_data encodes the item kind: 1 = parent (..), 2 = directory, 3 = file
+          static auto fw_item_cb = +[](lv_event_t *e) {
+            lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
+            int kind = (int)(intptr_t)lv_obj_get_user_data(btn);
+            lv_obj_t *list_obj = lv_obj_get_parent(btn);
+            const char *text = lv_list_get_button_text(list_obj, btn);
+            if (text == nullptr) return;
+            std::string item = text;
+            std::string cwd = id(g_fw_cwd);
+
+            if (kind == 1) {
+              size_t pos = cwd.find_last_of('/');
+              if (pos != std::string::npos && pos > 0) {
+                id(g_fw_cwd) = cwd.substr(0, pos);
+              }
+              id(fw_refresh_list)->execute();
+            } else if (kind == 2) {
+              std::string name = item;
+              if (!name.empty() && name.back() == '/') name.pop_back();
+              id(g_fw_cwd) = cwd + "/" + name;
+              id(fw_refresh_list)->execute();
+            } else if (kind == 3) {
+              std::string path = cwd + "/" + item;
+              id(g_fw_selected) = path;
+              lv_label_set_text(id(fw_selected_lbl), path.c_str());
+              lv_obj_clear_state(id(fw_flash_btn), LV_STATE_DISABLED);
+            }
+          };
+
           lv_obj_t *list = id(fw_file_list);
           lv_obj_clean(list);
 
@@ -1301,7 +1331,8 @@ script:
 
           if (cwd != "/sdcard" && cwd != "/usb" && cwd != "/nfs" && cwd != "/") {
             lv_obj_t *up_btn = lv_list_add_button(list, LV_SYMBOL_UP, "..  (parent)");
-            lv_obj_set_user_data(up_btn, (void*)(uintptr_t)0xFFFFFFFFu);
+            lv_obj_set_user_data(up_btn, (void *)(intptr_t)1);
+            lv_obj_add_event_cb(up_btn, fw_item_cb, LV_EVENT_CLICKED, nullptr);
           }
 
           DIR *dir = opendir(cwd.c_str());
@@ -1340,10 +1371,14 @@ script:
             std::string label = dirs[i] + "/";
             lv_obj_t *b = lv_list_add_button(list, LV_SYMBOL_DIRECTORY, label.c_str());
             lv_obj_set_style_text_color(b, lv_color_hex(0xCCCCCC), 0);
+            lv_obj_set_user_data(b, (void *)(intptr_t)2);
+            lv_obj_add_event_cb(b, fw_item_cb, LV_EVENT_CLICKED, nullptr);
           }
           for (size_t i = 0; i < files.size(); i++) {
             lv_obj_t *b = lv_list_add_button(list, LV_SYMBOL_FILE, files[i].c_str());
             lv_obj_set_style_text_color(b, lv_color_hex(0xEEEEEE), 0);
+            lv_obj_set_user_data(b, (void *)(intptr_t)3);
+            lv_obj_add_event_cb(b, fw_item_cb, LV_EVENT_CLICKED, nullptr);
           }
 
           if (dirs.empty() && files.empty()) {
@@ -2744,7 +2779,7 @@ lvgl:
                               text_color: 0x39FF14
                               text_font: montserrat_14
 
-              # File list
+              # File list (item clicks handled via lv_obj_add_event_cb in fw_refresh_list)
               - list:
                   id: fw_file_list
                   x: 0
@@ -2755,38 +2790,6 @@ lvgl:
                   border_width: 0
                   radius: 0
                   scrollbar_mode: AUTO
-                  on_value:
-                    - lambda: |-
-                        #include <sys/stat.h>
-                        #include <string>
-                        const char *t = text;
-                        if (t == nullptr) return;
-                        std::string item = t;
-                        std::string cwd = id(g_fw_cwd);
-
-                        // Parent navigation
-                        if (item.find("..") == 0) {
-                          size_t pos = cwd.find_last_of('/');
-                          if (pos != std::string::npos && pos > 0) {
-                            id(g_fw_cwd) = cwd.substr(0, pos);
-                          }
-                          id(fw_refresh_list).execute();
-                          return;
-                        }
-
-                        // Directory entry (ends with "/")
-                        if (!item.empty() && item.back() == '/') {
-                          std::string name = item.substr(0, item.size() - 1);
-                          id(g_fw_cwd) = cwd + "/" + name;
-                          id(fw_refresh_list).execute();
-                          return;
-                        }
-
-                        // Regular file: select it
-                        std::string path = cwd + "/" + item;
-                        id(g_fw_selected) = path;
-                        lv_label_set_text(id(fw_selected_lbl), path.c_str());
-                        lv_obj_clear_state(id(fw_flash_btn), LV_STATE_DISABLED);
 
         # ---- Action bar (bottom) x=236 y=456 w=780 h=56 ----
         - obj:
