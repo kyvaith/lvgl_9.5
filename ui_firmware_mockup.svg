@@ -168,10 +168,10 @@
         <rect x="800" y="224" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="844" y="260">9</text>
         <rect x="896" y="224" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="940" y="260">0</text>
       </g>
-      <!-- Row 2 azerty -->
+      <!-- Row 2 qwerty -->
       <g font-size="20" class="txt" text-anchor="middle">
-        <rect x="32"  y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="76"  y="324">a</text>
-        <rect x="128" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="172" y="324">z</text>
+        <rect x="32"  y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="76"  y="324">q</text>
+        <rect x="128" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="172" y="324">w</text>
         <rect x="224" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="268" y="324">e</text>
         <rect x="320" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="364" y="324">r</text>
         <rect x="416" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="460" y="324">t</text>
@@ -181,9 +181,9 @@
         <rect x="800" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="844" y="324">o</text>
         <rect x="896" y="288" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="940" y="324">p</text>
       </g>
-      <!-- Row 3 -->
+      <!-- Row 3 asdf -->
       <g font-size="20" class="txt" text-anchor="middle">
-        <rect x="80"  y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="124" y="388">q</text>
+        <rect x="80"  y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="124" y="388">a</text>
         <rect x="176" y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="220" y="388">s</text>
         <rect x="272" y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="316" y="388">d</text>
         <rect x="368" y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="412" y="388">f</text>
@@ -193,10 +193,10 @@
         <rect x="752" y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="796" y="388">k</text>
         <rect x="848" y="352" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="892" y="388">l</text>
       </g>
-      <!-- Row 4 with shift/backspace -->
+      <!-- Row 4 zxcv -->
       <g font-size="20" class="txt" text-anchor="middle">
-        <rect x="32"  y="416" width="120" height="56" rx="6" ry="6" fill="#333333"/><text x="92"  y="452">⇧ Maj</text>
-        <rect x="160" y="416" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="204" y="452">w</text>
+        <rect x="32"  y="416" width="120" height="56" rx="6" ry="6" fill="#333333"/><text x="92"  y="452">ABC</text>
+        <rect x="160" y="416" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="204" y="452">z</text>
         <rect x="256" y="416" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="300" y="452">x</text>
         <rect x="352" y="416" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="396" y="452">c</text>
         <rect x="448" y="416" width="88" height="56" rx="6" ry="6" fill="#2A2A2A"/><text x="492" y="452">v</text>
@@ -216,7 +216,7 @@
     </g>
 
     <rect x="0" y="560" width="1024" height="40" class="ftr"/>
-    <text x="512" y="586" class="mut" font-size="13" text-anchor="middle">mode : TEXT_LOWER  •  accepted_chars : [A-Za-z0-9_.-]  •  max 64</text>
+    <text x="512" y="586" class="mut" font-size="13" text-anchor="middle">mode : TEXT_LOWER (QWERTY)  •  accepted_chars : [A-Za-z0-9_.-]  •  max 64</text>
   </g>
 
   <!-- ================================================================== -->
