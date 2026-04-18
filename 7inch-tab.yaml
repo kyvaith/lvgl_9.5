@@ -198,6 +198,15 @@ globals:
   - id: g_slider_updating
     type: bool
     initial_value: "false"
+  - id: g_chart_v_val
+    type: int
+    initial_value: "0"
+  - id: g_chart_i_val
+    type: int
+    initial_value: "0"
+  - id: g_chart_p_val
+    type: int
+    initial_value: "0"
 
   # Calibration backup path override
   - id: cal_backup_path
@@ -1166,16 +1175,17 @@ sensor:
         - lvgl.label.update:
             id: lbl_vout_g
             text: {format: "Vout  %.2fV", args: [x]}
+        - lambda: |-
+            float vset = id(opendps_voltage_set).state;
+            if (isnan(vset) || vset <= 0.01f) { id(g_chart_v_val) = 0; return; }
+            int v = (int)(x / vset * 1000.0f);
+            if (v < 0) v = 0;
+            if (v > 1000) v = 1000;
+            id(g_chart_v_val) = v;
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_v
-            value: !lambda |-
-              float vset = id(opendps_voltage_set).state;
-              if (isnan(vset) || vset <= 0.01f) return 0;
-              int v = (int)(x / vset * 1000.0f);
-              if (v < 0) v = 0;
-              if (v > 1000) v = 1000;
-              return v;
+            value: !lambda 'return id(g_chart_v_val);'
     current_out:
       id: opendps_ouput_current
       on_value:
@@ -1186,16 +1196,17 @@ sensor:
         - lvgl.label.update:
             id: lbl_iout_g
             text: {format: "Iout  %.3fA", args: [x]}
+        - lambda: |-
+            float iset = id(opendps_current_set).state;
+            if (isnan(iset) || iset <= 0.001f) { id(g_chart_i_val) = 0; return; }
+            int v = (int)(x / iset * 1000.0f);
+            if (v < 0) v = 0;
+            if (v > 1000) v = 1000;
+            id(g_chart_i_val) = v;
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_i
-            value: !lambda |-
-              float iset = id(opendps_current_set).state;
-              if (isnan(iset) || iset <= 0.001f) return 0;
-              int v = (int)(x / iset * 1000.0f);
-              if (v < 0) v = 0;
-              if (v > 1000) v = 1000;
-              return v;
+            value: !lambda 'return id(g_chart_i_val);'
 
     power_out:
       id: opendps_output_power
@@ -1203,18 +1214,19 @@ sensor:
         - lvgl.label.update:
             id: lbl_pout_g
             text: {format: "Pout  %.2fW", args: [x]}
+        - lambda: |-
+            float vset = id(opendps_voltage_set).state;
+            float iset = id(opendps_current_set).state;
+            float pmax = vset * iset;
+            if (isnan(pmax) || pmax <= 0.001f) { id(g_chart_p_val) = 0; return; }
+            int v = (int)(x / pmax * 1000.0f);
+            if (v < 0) v = 0;
+            if (v > 1000) v = 1000;
+            id(g_chart_p_val) = v;
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_p
-            value: !lambda |-
-              float vset = id(opendps_voltage_set).state;
-              float iset = id(opendps_current_set).state;
-              float pmax = vset * iset;
-              if (isnan(pmax) || pmax <= 0.001f) return 0;
-              int v = (int)(x / pmax * 1000.0f);
-              if (v < 0) v = 0;
-              if (v > 1000) v = 1000;
-              return v;
+            value: !lambda 'return id(g_chart_p_val);'
     voltage_set:
       id: opendps_voltage_set
       on_value:
