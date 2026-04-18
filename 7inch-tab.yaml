@@ -1417,6 +1417,9 @@ lvgl:
   touchscreens: touchscreen_id
   byte_order: little_endian
   default_font: montserrat_16
+  use_ppa: true
+  color_depth: 16
+  use_ppa_img: true
 
   # =========================================================
   # TOP LAYER — always visible, covers header (y=0) and footer (y=560)
