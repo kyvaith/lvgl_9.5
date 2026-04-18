@@ -1169,7 +1169,13 @@ sensor:
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_v
-            value: !lambda 'return (int)(x / id(g_vmax) * 1000.0f);'
+            value: !lambda |-
+              float vset = id(opendps_voltage_set).state;
+              if (isnan(vset) || vset <= 0.01f) return 0;
+              int v = (int)(x / vset * 1000.0f);
+              if (v < 0) v = 0;
+              if (v > 1000) v = 1000;
+              return v;
     current_out:
       id: opendps_ouput_current
       on_value:
@@ -1183,7 +1189,13 @@ sensor:
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_i
-            value: !lambda 'return (int)(x / id(cal_max_dps_current) * 1000.0f);'
+            value: !lambda |-
+              float iset = id(opendps_current_set).state;
+              if (isnan(iset) || iset <= 0.001f) return 0;
+              int v = (int)(x / iset * 1000.0f);
+              if (v < 0) v = 0;
+              if (v > 1000) v = 1000;
+              return v;
 
     power_out:
       id: opendps_output_power
@@ -1194,7 +1206,15 @@ sensor:
         - lvgl.chart.set_next_value:
             id: chart_main
             series_id: ser_p
-            value: !lambda 'return (int)(x / (id(g_vmax) * id(cal_max_dps_current)) * 1000.0f);'
+            value: !lambda |-
+              float vset = id(opendps_voltage_set).state;
+              float iset = id(opendps_current_set).state;
+              float pmax = vset * iset;
+              if (isnan(pmax) || pmax <= 0.001f) return 0;
+              int v = (int)(x / pmax * 1000.0f);
+              if (v < 0) v = 0;
+              if (v > 1000) v = 1000;
+              return v;
     voltage_set:
       id: opendps_voltage_set
       on_value:
@@ -2218,7 +2238,7 @@ lvgl:
                   text_color: 0xFF44CC
                   text_font: montserrat_16
               - label:
-                  text: "60s  /  0-100%"
+                  text: "60s  /  % du setpoint"
                   text_color: 0x555555
                   text_font: montserrat_12
 
