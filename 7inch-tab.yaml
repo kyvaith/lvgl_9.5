@@ -1167,9 +1167,9 @@ sensor:
             id: lbl_vout_g
             text: {format: "Vout  %.2fV", args: [x]}
         - lvgl.chart.set_next_value:
-            id: chart_v
+            id: chart_main
             series_id: ser_v
-            value: !lambda 'return (int)(x * 100);'
+            value: !lambda 'return (int)(x / id(g_vmax) * 1000.0f);'
     current_out:
       id: opendps_ouput_current
       on_value:
@@ -1181,9 +1181,9 @@ sensor:
             id: lbl_iout_g
             text: {format: "Iout  %.3fA", args: [x]}
         - lvgl.chart.set_next_value:
-            id: chart_i
+            id: chart_main
             series_id: ser_i
-            value: !lambda 'return (int)(x * 1000);'
+            value: !lambda 'return (int)(x / id(cal_max_dps_current) * 1000.0f);'
 
     power_out:
       id: opendps_output_power
@@ -1192,9 +1192,9 @@ sensor:
             id: lbl_pout_g
             text: {format: "Pout  %.2fW", args: [x]}
         - lvgl.chart.set_next_value:
-            id: chart_p
+            id: chart_main
             series_id: ser_p
-            value: !lambda 'return (int)(x * 100);'
+            value: !lambda 'return (int)(x / (id(g_vmax) * id(cal_max_dps_current)) * 1000.0f);'
     voltage_set:
       id: opendps_voltage_set
       on_value:
@@ -2182,19 +2182,19 @@ lvgl:
       scrollbar_mode: "off"
 
       widgets:
-        # Chart header strip: x=0, y=80, w=1024, h=32
+        # Chart header strip: x=0, y=80, w=1024, h=40
         - obj:
             x: 0
             y: 80
             width: 1024
-            height: 32
+            height: 40
             bg_color: 0x0D0D0D
             border_width: 0
             radius: 0
             pad_left: 24
             pad_right: 24
-            pad_top: 4
-            pad_bottom: 4
+            pad_top: 6
+            pad_bottom: 6
             scrollbar_mode: "off"
             layout:
               type: FLEX
@@ -2204,225 +2204,67 @@ lvgl:
             widgets:
               - label:
                   id: lbl_vout_g
-                  text: "Vout  --.-V"
+                  text: "\u25CF  Vout  --.-V"
                   text_color: 0x4499FF
-                  text_font: montserrat_14
+                  text_font: montserrat_16
               - label:
                   id: lbl_iout_g
-                  text: "Iout  -.---A"
+                  text: "\u25CF  Iout  -.---A"
                   text_color: 0xFFAA22
-                  text_font: montserrat_14
+                  text_font: montserrat_16
               - label:
                   id: lbl_pout_g
-                  text: "Pout  --.-W"
+                  text: "\u25CF  Pout  --.-W"
                   text_color: 0xFF44CC
-                  text_font: montserrat_14
+                  text_font: montserrat_16
               - label:
-                  text: "60s window"
-                  text_color: 0x444444
+                  text: "60s  /  0-100%"
+                  text_color: 0x555555
                   text_font: montserrat_12
 
-        # Voltage chart row: x=0, y=112, w=1024, h=136
+        # Single combined chart: x=0, y=120, w=1024, h=400
         - obj:
             x: 0
-            y: 112
+            y: 120
             width: 1024
-            height: 136
+            height: 400
             bg_color: 0x0C1A0C
             border_color: 0x004408
             border_width: 1
             radius: 8
-            pad_all: 8
+            pad_all: 12
             scrollbar_mode: "off"
             layout:
               type: FLEX
               flex_flow: ROW
               flex_align_cross: CENTER
-              pad_column: 8
+              pad_column: 0
 
             widgets:
-              - obj:
-                  width: 44
-                  height: 120
-                  bg_opa: TRANSP
-                  border_width: 0
-                  scrollbar_mode: "off"
-                  layout:
-                    type: FLEX
-                    flex_flow: COLUMN
-                    flex_align_cross: CENTER
-                    flex_align_main: CENTER
-                  widgets:
-                    - label:
-                        text: "V"
-                        text_color: 0x4499FF
-                        text_font: montserrat_20
-                    - label:
-                        text: "out"
-                        text_color: 0x224466
-                        text_font: montserrat_12
-
               - chart:
-                  id: chart_v
-                  width: 948
-                  height: 120
+                  id: chart_main
+                  width: 1000
+                  height: 376
                   type: LINE
                   point_count: 60
                   update_mode: SHIFT
                   bg_color: 0x070F07
                   border_color: 0x003306
                   border_width: 1
-                  div_line_count_hor: 4
+                  div_line_count_hor: 5
                   div_line_count_ver: 6
                   items:
-                    line_color: 0x4499FF
                     line_width: 2
-                    bg_color: 0x4499FF
-                    bg_opa: 30%
-                    bg_grad_color: 0x070F07
-                    bg_grad_dir: VER
                   indicator:
                     radius: 0
                   axis_primary_y:
                     min_value: 0
-                    max_value: 3000
+                    max_value: 1000
                   series:
                     - id: ser_v
                       color: 0x4499FF
-
-        # Current chart row: x=0, y=248, w=1024, h=136
-        - obj:
-            x: 0
-            y: 248
-            width: 1024
-            height: 136
-            bg_color: 0x0C1A0C
-            border_color: 0x004408
-            border_width: 1
-            radius: 8
-            pad_all: 8
-            scrollbar_mode: "off"
-            layout:
-              type: FLEX
-              flex_flow: ROW
-              flex_align_cross: CENTER
-              pad_column: 8
-
-            widgets:
-              - obj:
-                  width: 44
-                  height: 120
-                  bg_opa: TRANSP
-                  border_width: 0
-                  scrollbar_mode: "off"
-                  layout:
-                    type: FLEX
-                    flex_flow: COLUMN
-                    flex_align_cross: CENTER
-                    flex_align_main: CENTER
-                  widgets:
-                    - label:
-                        text: "A"
-                        text_color: 0xFFAA22
-                        text_font: montserrat_20
-                    - label:
-                        text: "out"
-                        text_color: 0x664422
-                        text_font: montserrat_12
-
-              - chart:
-                  id: chart_i
-                  width: 948
-                  height: 120
-                  type: LINE
-                  point_count: 60
-                  update_mode: SHIFT
-                  bg_color: 0x070F07
-                  border_color: 0x003306
-                  border_width: 1
-                  div_line_count_hor: 4
-                  div_line_count_ver: 6
-                  items:
-                    line_color: 0xFFAA22
-                    line_width: 2
-                    bg_color: 0xFFAA22
-                    bg_opa: 30%
-                    bg_grad_color: 0x070F07
-                    bg_grad_dir: VER
-                  indicator:
-                    radius: 0
-                  axis_primary_y:
-                    min_value: 0
-                    max_value: 5000
-                  series:
                     - id: ser_i
                       color: 0xFFAA22
-
-        # Power chart row: x=0, y=384, w=1024, h=136
-        - obj:
-            x: 0
-            y: 384
-            width: 1024
-            height: 136
-            bg_color: 0x0C1A0C
-            border_color: 0x004408
-            border_width: 1
-            radius: 8
-            pad_all: 8
-            scrollbar_mode: "off"
-            layout:
-              type: FLEX
-              flex_flow: ROW
-              flex_align_cross: CENTER
-              pad_column: 8
-
-            widgets:
-              - obj:
-                  width: 44
-                  height: 120
-                  bg_opa: TRANSP
-                  border_width: 0
-                  scrollbar_mode: "off"
-                  layout:
-                    type: FLEX
-                    flex_flow: COLUMN
-                    flex_align_cross: CENTER
-                    flex_align_main: CENTER
-                  widgets:
-                    - label:
-                        text: "W"
-                        text_color: 0xFF44CC
-                        text_font: montserrat_20
-                    - label:
-                        text: "out"
-                        text_color: 0x662266
-                        text_font: montserrat_12
-
-              - chart:
-                  id: chart_p
-                  width: 948
-                  height: 120
-                  type: LINE
-                  point_count: 60
-                  update_mode: SHIFT
-                  bg_color: 0x070F07
-                  border_color: 0x003306
-                  border_width: 1
-                  div_line_count_hor: 4
-                  div_line_count_ver: 6
-                  items:
-                    line_color: 0xFF44CC
-                    line_width: 2
-                    bg_color: 0xFF44CC
-                    bg_opa: 30%
-                    bg_grad_color: 0x070F07
-                    bg_grad_dir: VER
-                  indicator:
-                    radius: 0
-                  axis_primary_y:
-                    min_value: 0
-                    max_value: 15000
-                  series:
                     - id: ser_p
                       color: 0xFF44CC
 
