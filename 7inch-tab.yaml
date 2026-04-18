@@ -208,6 +208,32 @@ globals:
     type: int
     initial_value: "0"
 
+  # Firmware update wizard state
+  - id: g_fw_storage
+    type: int
+    initial_value: "0"
+  - id: g_fw_cwd
+    type: std::string
+    initial_value: '"/sdcard"'
+  - id: g_fw_selected
+    type: std::string
+    initial_value: '""'
+  - id: g_fw_filter_bin
+    type: bool
+    initial_value: "true"
+  - id: g_fw_status
+    type: std::string
+    initial_value: '""'
+  - id: g_fw_progress
+    type: int
+    initial_value: "0"
+  - id: g_fw_flashing
+    type: bool
+    initial_value: "false"
+  - id: g_fw_url
+    type: std::string
+    initial_value: '""'
+
   # Calibration backup path override
   - id: cal_backup_path
     type: std::string
@@ -1246,6 +1272,146 @@ sensor:
             id: lbl_vin
             text: {format: "%.1fV", args: [x]}
 
+script:
+  # Rebuilds the file list of fw_file_list from current g_fw_cwd.
+  # Applies *.bin filter if g_fw_filter_bin is true.
+  # Keeps directories always visible. Adds a ".." entry when not at a mount root.
+  - id: fw_refresh_list
+    mode: restart
+    then:
+      - lambda: |-
+          #include <dirent.h>
+          #include <sys/stat.h>
+          #include <string>
+          #include <vector>
+          #include <algorithm>
+
+          lv_obj_t *list = id(fw_file_list);
+          lv_obj_clean(list);
+
+          std::string cwd = id(g_fw_cwd);
+          lv_label_set_text(id(fw_breadcrumb), cwd.c_str());
+
+          if (cwd != "/sdcard" && cwd != "/usb" && cwd != "/nfs" && cwd != "/") {
+            lv_obj_t *up_btn = lv_list_add_button(list, LV_SYMBOL_UP, "..  (parent)");
+            lv_obj_set_user_data(up_btn, (void*)(uintptr_t)0xFFFFFFFFu);
+          }
+
+          DIR *dir = opendir(cwd.c_str());
+          if (!dir) {
+            lv_obj_t *err = lv_list_add_text(list, "(cannot open directory)");
+            lv_obj_set_style_text_color(err, lv_color_hex(0xFF6666), 0);
+            return;
+          }
+
+          std::vector<std::string> dirs;
+          std::vector<std::string> files;
+          struct dirent *ent;
+          while ((ent = readdir(dir)) != nullptr) {
+            std::string name = ent->d_name;
+            if (name == "." || name == "..") continue;
+            std::string path = cwd + "/" + name;
+            struct stat st;
+            if (stat(path.c_str(), &st) != 0) continue;
+            if (S_ISDIR(st.st_mode)) {
+              dirs.push_back(name);
+            } else if (S_ISREG(st.st_mode)) {
+              if (id(g_fw_filter_bin)) {
+                if (name.size() < 4) continue;
+                std::string ext = name.substr(name.size() - 4);
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext != ".bin") continue;
+              }
+              files.push_back(name);
+            }
+          }
+          closedir(dir);
+          std::sort(dirs.begin(), dirs.end());
+          std::sort(files.begin(), files.end());
+
+          for (size_t i = 0; i < dirs.size(); i++) {
+            std::string label = dirs[i] + "/";
+            lv_obj_t *b = lv_list_add_button(list, LV_SYMBOL_DIRECTORY, label.c_str());
+            lv_obj_set_style_text_color(b, lv_color_hex(0xCCCCCC), 0);
+          }
+          for (size_t i = 0; i < files.size(); i++) {
+            lv_obj_t *b = lv_list_add_button(list, LV_SYMBOL_FILE, files[i].c_str());
+            lv_obj_set_style_text_color(b, lv_color_hex(0xEEEEEE), 0);
+          }
+
+          if (dirs.empty() && files.empty()) {
+            lv_obj_t *e = lv_list_add_text(list, "(no matching files)");
+            lv_obj_set_style_text_color(e, lv_color_hex(0x777777), 0);
+          }
+
+  # Select a storage and reset cwd + selected file
+  - id: fw_set_storage
+    mode: restart
+    parameters:
+      which: int
+    then:
+      - globals.set:
+          id: g_fw_storage
+          value: !lambda 'return which;'
+      - globals.set:
+          id: g_fw_selected
+          value: '""'
+      - lambda: |-
+          switch (which) {
+            case 0: id(g_fw_cwd) = "/sdcard"; break;
+            case 1: id(g_fw_cwd) = "/usb"; break;
+            case 2: id(g_fw_cwd) = "/nfs"; break;
+            case 3: id(g_fw_cwd) = ""; break;
+          }
+      - lvgl.label.update:
+          id: fw_selected_lbl
+          text: "(no file selected)"
+      - lvgl.widget.disable: fw_flash_btn
+      - script.execute: fw_refresh_list
+
+  # Trigger the firmware flash using the OpenDPS hub
+  - id: fw_flash
+    mode: single
+    then:
+      - lambda: |-
+          std::string path = id(g_fw_selected);
+          if (path.empty()) {
+            id(g_fw_status) = "Error: no file selected";
+            return;
+          }
+          id(g_fw_flashing) = true;
+          id(g_fw_progress) = 0;
+          id(g_fw_status) = "Uploading firmware...";
+          id(opendps_firmware_path) = path;
+          id(opendps_id).start_firmware_upgrade(path);
+      - lvgl.widget.show: fw_progress_overlay
+      - lvgl.label.update:
+          id: fw_progress_status
+          text: !lambda 'return id(g_fw_status).c_str();'
+      - lvgl.bar.update:
+          id: fw_progress_bar
+          value: 0
+
+  # Poll updates from g_fw_status / g_fw_progress into the overlay
+  - id: fw_poll_status
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: fw_progress_status
+          text: !lambda 'return id(g_fw_status).c_str();'
+      - lvgl.bar.update:
+          id: fw_progress_bar
+          value: !lambda 'return id(g_fw_progress);'
+
+interval:
+  - interval: 500ms
+    then:
+      - if:
+          condition:
+            lambda: 'return id(g_fw_flashing);'
+          then:
+            - script.execute: fw_poll_status
+
 lvgl:
   displays: dsi_display
   touchscreens: touchscreen_id
@@ -1364,7 +1530,7 @@ lvgl:
           widgets:
             - button:
                 id: tab_btn_main
-                width: 341
+                width: 256
                 height: 72
                 bg_color: 0x1A1A1A
                 border_width: 2
@@ -1380,6 +1546,9 @@ lvgl:
                       lv_obj_set_style_bg_color(id(tab_btn_graphs), lv_color_hex(0x111111), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_graphs), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
                       lv_obj_set_style_text_color(id(tab_lbl_graphs), lv_color_hex(0x555555), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_firmware), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_firmware), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_firmware), lv_color_hex(0x555555), LV_PART_MAIN);
                       lv_obj_set_style_bg_color(id(tab_btn_settings), lv_color_hex(0x111111), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_settings), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
                       lv_obj_set_style_text_color(id(tab_lbl_settings), lv_color_hex(0x555555), LV_PART_MAIN);
@@ -1392,7 +1561,7 @@ lvgl:
                       text_font: montserrat_16
             - button:
                 id: tab_btn_graphs
-                width: 341
+                width: 256
                 height: 72
                 bg_color: 0x111111
                 border_width: 2
@@ -1408,6 +1577,9 @@ lvgl:
                       lv_obj_set_style_bg_color(id(tab_btn_main), lv_color_hex(0x111111), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_main), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
                       lv_obj_set_style_text_color(id(tab_lbl_main), lv_color_hex(0x555555), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_firmware), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_firmware), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_firmware), lv_color_hex(0x555555), LV_PART_MAIN);
                       lv_obj_set_style_bg_color(id(tab_btn_settings), lv_color_hex(0x111111), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_settings), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
                       lv_obj_set_style_text_color(id(tab_lbl_settings), lv_color_hex(0x555555), LV_PART_MAIN);
@@ -1419,8 +1591,40 @@ lvgl:
                       text_color: 0x555555
                       text_font: montserrat_16
             - button:
+                id: tab_btn_firmware
+                width: 256
+                height: 72
+                bg_color: 0x111111
+                border_width: 2
+                border_side: NONE
+                border_color: 0x39FF14
+                radius: 0
+                on_click:
+                  - lvgl.page.show: page_firmware
+                  - script.execute: fw_refresh_list
+                  - lambda: |-
+                      lv_obj_set_style_bg_color(id(tab_btn_firmware), lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_firmware), (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_firmware), lv_color_hex(0x39FF14), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_main), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_main), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_main), lv_color_hex(0x555555), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_graphs), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_graphs), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_graphs), lv_color_hex(0x555555), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_settings), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_settings), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_settings), lv_color_hex(0x555555), LV_PART_MAIN);
+                widgets:
+                  - label:
+                      id: tab_lbl_firmware
+                      align: CENTER
+                      text: "FIRMWARE"
+                      text_color: 0x555555
+                      text_font: montserrat_16
+            - button:
                 id: tab_btn_settings
-                width: 342
+                width: 256
                 height: 72
                 bg_color: 0x111111
                 border_width: 2
@@ -1439,6 +1643,9 @@ lvgl:
                       lv_obj_set_style_bg_color(id(tab_btn_graphs), lv_color_hex(0x111111), LV_PART_MAIN);
                       lv_obj_set_style_border_side(id(tab_btn_graphs), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
                       lv_obj_set_style_text_color(id(tab_lbl_graphs), lv_color_hex(0x555555), LV_PART_MAIN);
+                      lv_obj_set_style_bg_color(id(tab_btn_firmware), lv_color_hex(0x111111), LV_PART_MAIN);
+                      lv_obj_set_style_border_side(id(tab_btn_firmware), (lv_border_side_t)LV_BORDER_SIDE_NONE, LV_PART_MAIN);
+                      lv_obj_set_style_text_color(id(tab_lbl_firmware), lv_color_hex(0x555555), LV_PART_MAIN);
                 widgets:
                   - label:
                       id: tab_lbl_settings
@@ -2301,6 +2508,633 @@ lvgl:
                       color: 0xFFAA22
                     - id: ser_p
                       color: 0xFF44CC
+
+    # =========================================================
+    # PAGE: FIRMWARE  (content area y=80..520, 440px tall)
+    # File picker + QWERTY keyboard + OTA flasher
+    # =========================================================
+    - id: page_firmware
+      bg_color: 0x111111
+      scrollbar_mode: "off"
+
+      widgets:
+        # ---- Storage selector (left column) x=8 y=88 w=220 h=424 ----
+        - obj:
+            x: 8
+            y: 88
+            width: 220
+            height: 424
+            bg_color: 0x1C1C1C
+            border_color: 0x2A2A2A
+            border_width: 1
+            radius: 8
+            pad_all: 10
+            scrollbar_mode: "off"
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: START
+              flex_align_cross: STRETCH
+              pad_row: 8
+
+            widgets:
+              - label:
+                  text: "SOURCE"
+                  text_color: 0x888888
+                  text_font: montserrat_14
+
+              - button:
+                  id: fw_src_sd
+                  width: 200
+                  height: 56
+                  bg_color: 0x243028
+                  border_color: 0x39FF14
+                  border_width: 2
+                  border_side: BOTTOM
+                  radius: 6
+                  on_click:
+                    - script.execute:
+                        id: fw_set_storage
+                        which: 0
+                    - lambda: |-
+                        lv_obj_set_style_border_side(id(fw_src_sd),  (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_usb), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_nfs), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_url), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "SD card"
+                        text_color: 0xEEEEEE
+                        text_font: montserrat_16
+
+              - button:
+                  id: fw_src_usb
+                  width: 200
+                  height: 56
+                  bg_color: 0x222222
+                  border_color: 0x39FF14
+                  border_width: 2
+                  border_side: NONE
+                  radius: 6
+                  on_click:
+                    - script.execute:
+                        id: fw_set_storage
+                        which: 1
+                    - lambda: |-
+                        lv_obj_set_style_border_side(id(fw_src_usb), (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_sd),  (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_nfs), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_url), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "USB drive"
+                        text_color: 0xEEEEEE
+                        text_font: montserrat_16
+
+              - button:
+                  id: fw_src_nfs
+                  width: 200
+                  height: 56
+                  bg_color: 0x222222
+                  border_color: 0x39FF14
+                  border_width: 2
+                  border_side: NONE
+                  radius: 6
+                  on_click:
+                    - script.execute:
+                        id: fw_set_storage
+                        which: 2
+                    - lambda: |-
+                        lv_obj_set_style_border_side(id(fw_src_nfs), (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_sd),  (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_usb), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_url), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "NFS share"
+                        text_color: 0xEEEEEE
+                        text_font: montserrat_16
+
+              - button:
+                  id: fw_src_url
+                  width: 200
+                  height: 56
+                  bg_color: 0x222222
+                  border_color: 0x39FF14
+                  border_width: 2
+                  border_side: NONE
+                  radius: 6
+                  on_click:
+                    - script.execute:
+                        id: fw_set_storage
+                        which: 3
+                    - lvgl.widget.show: fw_url_overlay
+                    - lambda: |-
+                        lv_obj_set_style_border_side(id(fw_src_url), (lv_border_side_t)LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_sd),  (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_usb), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                        lv_obj_set_style_border_side(id(fw_src_nfs), (lv_border_side_t)LV_BORDER_SIDE_NONE,   LV_PART_MAIN);
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "URL (HTTP)"
+                        text_color: 0xEEEEEE
+                        text_font: montserrat_16
+
+              - label:
+                  text: "FILTER"
+                  text_color: 0x888888
+                  text_font: montserrat_14
+
+              - obj:
+                  width: 200
+                  height: 48
+                  bg_color: 0x222222
+                  border_width: 0
+                  radius: 6
+                  pad_all: 10
+                  scrollbar_mode: "off"
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+
+                  widgets:
+                    - label:
+                        text: "Only .bin"
+                        text_color: 0xCCCCCC
+                        text_font: montserrat_14
+                    - switch:
+                        id: fw_filter_sw
+                        checked: true
+                        on_value:
+                          - globals.set:
+                              id: g_fw_filter_bin
+                              value: !lambda 'return x;'
+                          - script.execute: fw_refresh_list
+
+        # ---- File browser (right column) x=236 y=88 w=780 h=360 ----
+        - obj:
+            x: 236
+            y: 88
+            width: 780
+            height: 360
+            bg_color: 0x1C1C1C
+            border_color: 0x2A2A2A
+            border_width: 1
+            radius: 8
+            pad_all: 0
+            scrollbar_mode: "off"
+
+            widgets:
+              # Breadcrumb + refresh bar (top strip)
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 780
+                  height: 40
+                  bg_color: 0x141414
+                  border_width: 0
+                  radius: 0
+                  pad_left: 12
+                  pad_right: 8
+                  pad_top: 8
+                  pad_bottom: 8
+                  scrollbar_mode: "off"
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                  widgets:
+                    - label:
+                        id: fw_breadcrumb
+                        text: "/sdcard"
+                        text_color: 0xAAAAAA
+                        text_font: montserrat_14
+                    - button:
+                        width: 80
+                        height: 28
+                        bg_color: 0x2A2A2A
+                        radius: 4
+                        on_click:
+                          - script.execute: fw_refresh_list
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Refresh"
+                              text_color: 0x39FF14
+                              text_font: montserrat_14
+
+              # File list
+              - list:
+                  id: fw_file_list
+                  x: 0
+                  y: 40
+                  width: 780
+                  height: 320
+                  bg_color: 0x0F0F0F
+                  border_width: 0
+                  radius: 0
+                  scrollbar_mode: AUTO
+                  on_value:
+                    - lambda: |-
+                        #include <sys/stat.h>
+                        #include <string>
+                        const char *t = text;
+                        if (t == nullptr) return;
+                        std::string item = t;
+                        std::string cwd = id(g_fw_cwd);
+
+                        // Parent navigation
+                        if (item.find("..") == 0) {
+                          size_t pos = cwd.find_last_of('/');
+                          if (pos != std::string::npos && pos > 0) {
+                            id(g_fw_cwd) = cwd.substr(0, pos);
+                          }
+                          id(fw_refresh_list).execute();
+                          return;
+                        }
+
+                        // Directory entry (ends with "/")
+                        if (!item.empty() && item.back() == '/') {
+                          std::string name = item.substr(0, item.size() - 1);
+                          id(g_fw_cwd) = cwd + "/" + name;
+                          id(fw_refresh_list).execute();
+                          return;
+                        }
+
+                        // Regular file: select it
+                        std::string path = cwd + "/" + item;
+                        id(g_fw_selected) = path;
+                        lv_label_set_text(id(fw_selected_lbl), path.c_str());
+                        lv_obj_clear_state(id(fw_flash_btn), LV_STATE_DISABLED);
+
+        # ---- Action bar (bottom) x=236 y=456 w=780 h=56 ----
+        - obj:
+            x: 236
+            y: 456
+            width: 780
+            height: 56
+            bg_color: 0x1C1C1C
+            border_color: 0x2A2A2A
+            border_width: 1
+            radius: 8
+            pad_left: 12
+            pad_right: 12
+            pad_top: 6
+            pad_bottom: 6
+            scrollbar_mode: "off"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+
+            widgets:
+              - label:
+                  id: fw_selected_lbl
+                  text: "(no file selected)"
+                  text_color: 0xCCCCCC
+                  text_font: montserrat_14
+                  long_mode: DOT
+                  width: 500
+
+              - button:
+                  id: fw_flash_btn
+                  width: 200
+                  height: 44
+                  bg_color: 0x2A4A2A
+                  border_color: 0x39FF14
+                  border_width: 2
+                  radius: 6
+                  state:
+                    disabled: true
+                  on_click:
+                    - lvgl.widget.show: fw_confirm_overlay
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "FLASH FIRMWARE"
+                        text_color: 0x39FF14
+                        text_font: montserrat_16
+
+        # ==============================================================
+        # URL INPUT OVERLAY  (hidden by default, shown when "URL" source)
+        # ==============================================================
+        - obj:
+            id: fw_url_overlay
+            hidden: true
+            x: 0
+            y: 80
+            width: 1024
+            height: 440
+            bg_color: 0x000000
+            bg_opa: 90%
+            border_width: 0
+            radius: 0
+            scrollbar_mode: "off"
+
+            widgets:
+              # Dialog card
+              - obj:
+                  x: 112
+                  y: 20
+                  width: 800
+                  height: 400
+                  bg_color: 0x1C1C1C
+                  border_color: 0x39FF14
+                  border_width: 2
+                  radius: 10
+                  pad_all: 16
+                  scrollbar_mode: "off"
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_main: START
+                    flex_align_cross: STRETCH
+                    pad_row: 10
+
+                  widgets:
+                    - label:
+                        text: "Firmware URL"
+                        text_color: 0xEEEEEE
+                        text_font: montserrat_20
+
+                    - label:
+                        text: "Enter the HTTP(S) URL of the .bin firmware:"
+                        text_color: 0x888888
+                        text_font: montserrat_14
+
+                    - textarea:
+                        id: fw_url_input
+                        width: 760
+                        height: 50
+                        one_line: true
+                        placeholder_text: "http://server/firmware.bin"
+                        text_color: 0xEEEEEE
+                        bg_color: 0x0F0F0F
+                        border_color: 0x39FF14
+                        border_width: 1
+                        radius: 4
+                        on_focus:
+                          - lvgl.keyboard.mode:
+                              id: fw_keyboard
+                              mode: TEXT_LOWER
+
+                    - keyboard:
+                        id: fw_keyboard
+                        width: 760
+                        height: 220
+                        textarea: fw_url_input
+                        mode: TEXT_LOWER
+                        bg_color: 0x222222
+                        text_color: 0xEEEEEE
+
+                    # Action row (OK / Cancel)
+                    - obj:
+                        width: 760
+                        height: 44
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "off"
+                        layout:
+                          type: FLEX
+                          flex_flow: ROW
+                          flex_align_main: END
+                          flex_align_cross: CENTER
+                          pad_column: 12
+
+                        widgets:
+                          - button:
+                              width: 140
+                              height: 44
+                              bg_color: 0x333333
+                              radius: 6
+                              on_click:
+                                - lvgl.widget.hide: fw_url_overlay
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Cancel"
+                                    text_color: 0xCCCCCC
+                                    text_font: montserrat_16
+                          - button:
+                              width: 140
+                              height: 44
+                              bg_color: 0x2A4A2A
+                              border_color: 0x39FF14
+                              border_width: 2
+                              radius: 6
+                              on_click:
+                                - lambda: |-
+                                    const char *url = lv_textarea_get_text(id(fw_url_input));
+                                    if (url == nullptr || url[0] == '\0') return;
+                                    id(g_fw_url) = url;
+                                    id(g_fw_selected) = url;
+                                    lv_label_set_text(id(fw_selected_lbl), url);
+                                    lv_obj_clear_state(id(fw_flash_btn), LV_STATE_DISABLED);
+                                - lvgl.widget.hide: fw_url_overlay
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "OK"
+                                    text_color: 0x39FF14
+                                    text_font: montserrat_16
+
+        # ==============================================================
+        # CONFIRM OVERLAY  (hidden by default, shown before flashing)
+        # ==============================================================
+        - obj:
+            id: fw_confirm_overlay
+            hidden: true
+            x: 0
+            y: 80
+            width: 1024
+            height: 440
+            bg_color: 0x000000
+            bg_opa: 90%
+            border_width: 0
+            radius: 0
+            scrollbar_mode: "off"
+
+            widgets:
+              - obj:
+                  x: 212
+                  y: 80
+                  width: 600
+                  height: 280
+                  bg_color: 0x1C1C1C
+                  border_color: 0xFFAA22
+                  border_width: 2
+                  radius: 10
+                  pad_all: 20
+                  scrollbar_mode: "off"
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: STRETCH
+                    pad_row: 12
+
+                  widgets:
+                    - label:
+                        text: "Confirm firmware flash"
+                        text_color: 0xFFAA22
+                        text_font: montserrat_20
+                        align: CENTER
+
+                    - label:
+                        text: "The device will be reprogrammed.\nDo NOT power off during the process."
+                        text_color: 0xCCCCCC
+                        text_font: montserrat_16
+                        align: CENTER
+
+                    - label:
+                        id: fw_confirm_file
+                        text: ""
+                        text_color: 0xAAAAAA
+                        text_font: montserrat_14
+                        long_mode: DOT
+                        align: CENTER
+
+                    - obj:
+                        width: 560
+                        height: 50
+                        bg_opa: TRANSP
+                        border_width: 0
+                        pad_all: 0
+                        scrollbar_mode: "off"
+                        layout:
+                          type: FLEX
+                          flex_flow: ROW
+                          flex_align_main: SPACE_EVENLY
+                          flex_align_cross: CENTER
+
+                        widgets:
+                          - button:
+                              width: 200
+                              height: 44
+                              bg_color: 0x333333
+                              radius: 6
+                              on_click:
+                                - lvgl.widget.hide: fw_confirm_overlay
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Cancel"
+                                    text_color: 0xCCCCCC
+                                    text_font: montserrat_16
+                          - button:
+                              width: 200
+                              height: 44
+                              bg_color: 0x4A2A2A
+                              border_color: 0xFF4444
+                              border_width: 2
+                              radius: 6
+                              on_click:
+                                - lvgl.widget.hide: fw_confirm_overlay
+                                - script.execute: fw_flash
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Start flash"
+                                    text_color: 0xFF4444
+                                    text_font: montserrat_16
+
+        # ==============================================================
+        # PROGRESS OVERLAY  (hidden by default, shown during flashing)
+        # ==============================================================
+        - obj:
+            id: fw_progress_overlay
+            hidden: true
+            x: 0
+            y: 80
+            width: 1024
+            height: 440
+            bg_color: 0x000000
+            bg_opa: 90%
+            border_width: 0
+            radius: 0
+            scrollbar_mode: "off"
+
+            widgets:
+              - obj:
+                  x: 112
+                  y: 60
+                  width: 800
+                  height: 320
+                  bg_color: 0x1C1C1C
+                  border_color: 0x39FF14
+                  border_width: 2
+                  radius: 10
+                  pad_all: 20
+                  scrollbar_mode: "off"
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: STRETCH
+                    pad_row: 16
+
+                  widgets:
+                    - label:
+                        text: "Flashing firmware..."
+                        text_color: 0x39FF14
+                        text_font: montserrat_20
+                        align: CENTER
+
+                    - spinner:
+                        width: 60
+                        height: 60
+                        align: CENTER
+                        indicator:
+                          arc_color: 0x39FF14
+                          arc_width: 6
+
+                    - label:
+                        id: fw_progress_status
+                        text: "Uploading..."
+                        text_color: 0xCCCCCC
+                        text_font: montserrat_16
+                        align: CENTER
+
+                    - bar:
+                        id: fw_progress_bar
+                        width: 760
+                        height: 20
+                        min_value: 0
+                        max_value: 100
+                        value: 0
+                        bg_color: 0x222222
+                        indicator:
+                          bg_color: 0x39FF14
+
+                    - button:
+                        id: fw_progress_close
+                        width: 200
+                        height: 44
+                        align: CENTER
+                        bg_color: 0x333333
+                        radius: 6
+                        state:
+                          disabled: true
+                        on_click:
+                          - lvgl.widget.hide: fw_progress_overlay
+                          - globals.set:
+                              id: g_fw_flashing
+                              value: "false"
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Close"
+                              text_color: 0xCCCCCC
+                              text_font: montserrat_16
 
     # =========================================================
     # PAGE: SETTINGS  (content area y=40..560, 520px tall)
