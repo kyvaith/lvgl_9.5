@@ -38,17 +38,77 @@
     <line x1="870" y1="132" x2="870" y2="508"/>
   </g>
 
-  <!-- Voltage trace (around 65%) - blue -->
+  <!-- Voltage trace (~65%) - blue line + markers -->
   <path d="M 12,264 L 71,258 L 131,252 L 190,255 L 250,248 L 309,244 L 369,252 L 428,240 L 488,236 L 547,244 L 607,232 L 666,240 L 726,228 L 785,234 L 845,224 L 904,232 L 964,226 L 1012,222"
         fill="none" stroke="#4499FF" stroke-width="2"/>
+  <g fill="#4499FF">
+    <circle cx="12"  cy="264" r="3"/>
+    <circle cx="71"  cy="258" r="3"/>
+    <circle cx="131" cy="252" r="3"/>
+    <circle cx="190" cy="255" r="3"/>
+    <circle cx="250" cy="248" r="3"/>
+    <circle cx="309" cy="244" r="3"/>
+    <circle cx="369" cy="252" r="3"/>
+    <circle cx="428" cy="240" r="3"/>
+    <circle cx="488" cy="236" r="3"/>
+    <circle cx="547" cy="244" r="3"/>
+    <circle cx="607" cy="232" r="3"/>
+    <circle cx="666" cy="240" r="3"/>
+    <circle cx="726" cy="228" r="3"/>
+    <circle cx="785" cy="234" r="3"/>
+    <circle cx="845" cy="224" r="3"/>
+    <circle cx="904" cy="232" r="3"/>
+    <circle cx="964" cy="226" r="3"/>
+    <circle cx="1012" cy="222" r="3"/>
+  </g>
 
-  <!-- Current trace (around 40%) - orange -->
+  <!-- Current trace (~40%) - orange line + markers -->
   <path d="M 12,358 L 71,362 L 131,350 L 190,368 L 250,354 L 309,372 L 369,358 L 428,376 L 488,362 L 547,380 L 607,366 L 666,382 L 726,368 L 785,384 L 845,370 L 904,386 L 964,372 L 1012,378"
         fill="none" stroke="#FFAA22" stroke-width="2"/>
+  <g fill="#FFAA22">
+    <circle cx="12"  cy="358" r="3"/>
+    <circle cx="71"  cy="362" r="3"/>
+    <circle cx="131" cy="350" r="3"/>
+    <circle cx="190" cy="368" r="3"/>
+    <circle cx="250" cy="354" r="3"/>
+    <circle cx="309" cy="372" r="3"/>
+    <circle cx="369" cy="358" r="3"/>
+    <circle cx="428" cy="376" r="3"/>
+    <circle cx="488" cy="362" r="3"/>
+    <circle cx="547" cy="380" r="3"/>
+    <circle cx="607" cy="366" r="3"/>
+    <circle cx="666" cy="382" r="3"/>
+    <circle cx="726" cy="368" r="3"/>
+    <circle cx="785" cy="384" r="3"/>
+    <circle cx="845" cy="370" r="3"/>
+    <circle cx="904" cy="386" r="3"/>
+    <circle cx="964" cy="372" r="3"/>
+    <circle cx="1012" cy="378" r="3"/>
+  </g>
 
-  <!-- Power trace (around 25%) - pink -->
+  <!-- Power trace (~25%) - pink line + markers -->
   <path d="M 12,420 L 71,410 L 131,418 L 190,408 L 250,412 L 309,398 L 369,404 L 428,392 L 488,400 L 547,386 L 607,394 L 666,380 L 726,388 L 785,374 L 845,382 L 904,370 L 964,376 L 1012,368"
         fill="none" stroke="#FF44CC" stroke-width="2"/>
+  <g fill="#FF44CC">
+    <circle cx="12"  cy="420" r="3"/>
+    <circle cx="71"  cy="410" r="3"/>
+    <circle cx="131" cy="418" r="3"/>
+    <circle cx="190" cy="408" r="3"/>
+    <circle cx="250" cy="412" r="3"/>
+    <circle cx="309" cy="398" r="3"/>
+    <circle cx="369" cy="404" r="3"/>
+    <circle cx="428" cy="392" r="3"/>
+    <circle cx="488" cy="400" r="3"/>
+    <circle cx="547" cy="386" r="3"/>
+    <circle cx="607" cy="394" r="3"/>
+    <circle cx="666" cy="380" r="3"/>
+    <circle cx="726" cy="388" r="3"/>
+    <circle cx="785" cy="374" r="3"/>
+    <circle cx="845" cy="382" r="3"/>
+    <circle cx="904" cy="370" r="3"/>
+    <circle cx="964" cy="376" r="3"/>
+    <circle cx="1012" cy="368" r="3"/>
+  </g>
 
   <!-- ============ TOP_LAYER FOOTER / TABS (y=520..600) ============ -->
   <rect x="0"   y="520" width="341" height="72" fill="#111111"/>
