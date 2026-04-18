@@ -2673,7 +2673,8 @@ lvgl:
                         text_font: montserrat_14
                     - switch:
                         id: fw_filter_sw
-                        checked: true
+                        state:
+                          checked: true
                         on_value:
                           - globals.set:
                               id: g_fw_filter_bin
