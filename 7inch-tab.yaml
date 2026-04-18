@@ -2256,7 +2256,9 @@ lvgl:
                   items:
                     line_width: 2
                   indicator:
-                    radius: 0
+                    radius: 3
+                    width: 6
+                    height: 6
                   axis_primary_y:
                     min_value: 0
                     max_value: 1000
