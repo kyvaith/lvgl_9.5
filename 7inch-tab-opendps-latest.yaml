@@ -2041,7 +2041,7 @@ script:
             lv_obj_set_style_radius(btn, 0, LV_PART_MAIN);
             lv_obj_set_style_pad_all(btn, 0, LV_PART_MAIN);
             // Remove default pressed/checked style changes
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x0A0A0A), LV_PART_MAIN | LV_STATE_PRESSED);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x0A0A0A), (lv_style_selector_t)(LV_PART_MAIN | LV_STATE_PRESSED));
 
             // Inner container (non-clickable, flex column, centered)
             lv_obj_t *inner = lv_obj_create(btn);
