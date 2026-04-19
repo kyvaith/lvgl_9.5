@@ -204,8 +204,16 @@ def lvgl_src_filter(env, node):
     if not _qrcode_needed:
         all_excluded.append("/libs/qrcode/")
 
-    # ===== Conditionally exclude GIF library =====
-    if "image" not in _used_widgets and "animimg" not in _used_widgets:
+    # ===== Conditionally exclude GIF / BMP libraries =====
+    # Must match the gating in components/lvgl/__init__.py where LV_USE_BMP /
+    # LV_USE_GIF are set to 1 when any of 'image', 'img', or 'animimg' widgets
+    # are used. If we exclude the source while the defines are on, lv_init()
+    # references lv_bmp_init / lv_gif_init that no longer have definitions.
+    if (
+        "image" not in _used_widgets
+        and "img" not in _used_widgets
+        and "animimg" not in _used_widgets
+    ):
         all_excluded.append("/libs/gif/")
         all_excluded.append("/libs/bmp/")
 
