@@ -38,6 +38,13 @@ void lv_draw_ppa_cache_sync(lv_draw_buf_t * buf)
      * to be aligned to the cache line size (64 bytes on ESP32-P4). */
     uint32_t aligned_size = lv_draw_ppa_align_size(buf->data_size);
 
+    static bool s_msync_logged_once = false;
+    if(!s_msync_logged_once) {
+        s_msync_logged_once = true;
+        LV_LOG_USER("PPA msync FIRST CALL: data_size=%u aligned=%u",
+                    (unsigned)buf->data_size,
+                    (unsigned)aligned_size);
+    }
     if(buf->data_size != aligned_size) {
         LV_LOG_USER("PPA msync: data_size=%u -> aligned=%u (delta=%u)",
                     (unsigned)buf->data_size,

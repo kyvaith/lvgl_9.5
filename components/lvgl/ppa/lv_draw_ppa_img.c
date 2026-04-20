@@ -109,6 +109,16 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     cfg.mode                 = PPA_TRANS_MODE_BLOCKING;
     cfg.user_data            = u;
 
+    static bool s_blend_logged_once = false;
+    if(!s_blend_logged_once) {
+        s_blend_logged_once = true;
+        LV_LOG_USER("PPA blend FIRST CALL: data_size=%u aligned=%u w=%u h=%u cf=%u",
+                    (unsigned)draw_buf->data_size,
+                    (unsigned)cfg.out.buffer_size,
+                    (unsigned)draw_buf->header.w,
+                    (unsigned)draw_buf->header.h,
+                    (unsigned)draw_buf->header.cf);
+    }
     if(draw_buf->data_size != cfg.out.buffer_size) {
         LV_LOG_USER("PPA blend: data_size=%u -> aligned=%u (delta=%u) w=%u h=%u cf=%u",
                     (unsigned)draw_buf->data_size,
@@ -239,6 +249,16 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.mode               = PPA_TRANS_MODE_BLOCKING;
     cfg.user_data          = u;
 
+    static bool s_srm_logged_once = false;
+    if(!s_srm_logged_once) {
+        s_srm_logged_once = true;
+        LV_LOG_USER("PPA SRM FIRST CALL: data_size=%u aligned=%u dest=%ux%u angle=%d",
+                    (unsigned)dest_buf->data_size,
+                    (unsigned)cfg.out.buffer_size,
+                    (unsigned)dest_buf->header.w,
+                    (unsigned)dest_buf->header.h,
+                    (int)angle);
+    }
     if(dest_buf->data_size != cfg.out.buffer_size) {
         LV_LOG_USER("PPA SRM: data_size=%u -> aligned=%u (delta=%u) dest=%ux%u cf=%u",
                     (unsigned)dest_buf->data_size,
