@@ -109,6 +109,16 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
     cfg.mode                 = PPA_TRANS_MODE_BLOCKING;
     cfg.user_data            = u;
 
+    if(draw_buf->data_size != cfg.out.buffer_size) {
+        LV_LOG_USER("PPA blend: data_size=%u -> aligned=%u (delta=%u) w=%u h=%u cf=%u",
+                    (unsigned)draw_buf->data_size,
+                    (unsigned)cfg.out.buffer_size,
+                    (unsigned)(cfg.out.buffer_size - draw_buf->data_size),
+                    (unsigned)draw_buf->header.w,
+                    (unsigned)draw_buf->header.h,
+                    (unsigned)draw_buf->header.cf);
+    }
+
     esp_err_t ret = ppa_do_blend(u->blend_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA blend failed: %d", ret);
@@ -228,6 +238,16 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.alpha_update_mode  = PPA_ALPHA_NO_CHANGE;
     cfg.mode               = PPA_TRANS_MODE_BLOCKING;
     cfg.user_data          = u;
+
+    if(dest_buf->data_size != cfg.out.buffer_size) {
+        LV_LOG_USER("PPA SRM: data_size=%u -> aligned=%u (delta=%u) dest=%ux%u cf=%u",
+                    (unsigned)dest_buf->data_size,
+                    (unsigned)cfg.out.buffer_size,
+                    (unsigned)(cfg.out.buffer_size - dest_buf->data_size),
+                    (unsigned)dest_buf->header.w,
+                    (unsigned)dest_buf->header.h,
+                    (unsigned)dest_buf->header.cf);
+    }
 
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
