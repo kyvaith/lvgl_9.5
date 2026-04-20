@@ -98,7 +98,8 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
     /* Output */
     cfg.out.buffer           = dest_buf;
-    cfg.out.buffer_size      = draw_buf->data_size;
+    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
+    cfg.out.buffer_size      = lv_draw_ppa_align_size(draw_buf->data_size);
     cfg.out.pic_w            = draw_buf->header.w;
     cfg.out.pic_h            = draw_buf->header.h;
     cfg.out.block_offset_x   = (uint32_t)dest_area.x1;
@@ -185,9 +186,11 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_area_copy(&dest_area, &t->area);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
-    /* Flush decoded source buffer for PPA DMA access */
+    /* Flush decoded source buffer for PPA DMA access. Align size to cache
+     * line; _UNALIGNED flag is only a safety net for the address. */
     if(decoded->data_size > 0) {
-        esp_cache_msync((void *)decoded->data, decoded->data_size,
+        esp_cache_msync((void *)decoded->data,
+                        lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
 
@@ -207,7 +210,8 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
 
     /* Output: write rotated image into layer buffer */
     cfg.out.buffer         = dest_buf->data;
-    cfg.out.buffer_size    = dest_buf->data_size;
+    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
+    cfg.out.buffer_size    = lv_draw_ppa_align_size(dest_buf->data_size);
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;

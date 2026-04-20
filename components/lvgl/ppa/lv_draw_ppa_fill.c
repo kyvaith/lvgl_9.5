@@ -39,7 +39,8 @@ void lv_draw_ppa_fill(lv_draw_task_t * t, const lv_draw_fill_dsc_t * dsc,
     fill_cfg.fill_block_w        = (uint32_t)lv_area_get_width(&blend_area);
     fill_cfg.fill_block_h        = (uint32_t)lv_area_get_height(&blend_area);
     fill_cfg.out.buffer          = draw_buf->data;
-    fill_cfg.out.buffer_size     = draw_buf->data_size;
+    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
+    fill_cfg.out.buffer_size     = lv_draw_ppa_align_size(draw_buf->data_size);
     fill_cfg.out.pic_w           = draw_buf->header.w;
     fill_cfg.out.pic_h           = draw_buf->header.h;
     fill_cfg.mode                = PPA_TRANS_MODE_BLOCKING;

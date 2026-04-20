@@ -35,10 +35,8 @@ void lv_draw_ppa_cache_sync(lv_draw_buf_t * buf)
     if(!esp_ptr_external_ram(buf->data)) return;
 
     /* Fix for issue #9868: esp_cache_msync() requires both address AND size
-     * to be aligned to the cache line size (64 bytes on ESP32-P4).
-     * Round up data_size to the nearest multiple of LV_DRAW_BUF_ALIGN. */
-    uint32_t aligned_size = (buf->data_size + (LV_DRAW_BUF_ALIGN) - 1)
-                            & ~((uint32_t)(LV_DRAW_BUF_ALIGN) - 1);
+     * to be aligned to the cache line size (64 bytes on ESP32-P4). */
+    uint32_t aligned_size = lv_draw_ppa_align_size(buf->data_size);
 
     esp_cache_msync(buf->data, aligned_size,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
