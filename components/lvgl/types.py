@@ -69,6 +69,8 @@ lv_page_t = LvType("LvPageType", parents=(LvCompound,))
 lv_image_t = LvType("lv_image_t")
 lv_gradient_t = LvType("lv_grad_dsc_t")
 lv_event_t = LvType("lv_event_t")
+lv_point_t = cg.global_ns.struct("lv_point_t")
+lv_point_precise_t = cg.global_ns.struct("lv_point_precise_t")
 
 LV_EVENT = MockObj(base="LV_EVENT_", op="")
 LV_STATE = MockObj(base="LV_STATE_", op="")
