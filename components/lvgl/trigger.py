@@ -25,11 +25,11 @@ from .defines import (
     LV_SCREEN_EVENT_MAP,
     LV_SCREEN_EVENT_TRIGGERS,
     SWIPE_TRIGGERS,
+    get_widget_map,
     is_press_event,
     literal,
 )
 from .lvcode import (
-    API_EVENT,
     EVENT_ARG,
     UPDATE_EVENT,
     LambdaContext,
@@ -40,7 +40,7 @@ from .lvcode import (
     lvgl_static,
 )
 from .types import LV_EVENT, lv_point_t
-from .widgets import LvScrActType, get_screen_active, widget_map
+from .widgets import LvScrActType, get_screen_active
 
 
 async def add_on_boot_triggers(triggers):
@@ -59,7 +59,7 @@ async def generate_triggers():
     all_triggers = (
         LV_EVENT_TRIGGERS + LV_DISPLAY_EVENT_TRIGGERS + LV_SCREEN_EVENT_TRIGGERS
     )
-    for w in widget_map.values():
+    for w in get_widget_map().values():
         config = w.config
         if isinstance(w.type, LvScrActType):
             w = get_screen_active(w.var)
@@ -96,7 +96,6 @@ async def generate_triggers():
                     conf,
                     w,
                     LV_EVENT.VALUE_CHANGED,
-                    API_EVENT,
                     UPDATE_EVENT,
                 )
 
@@ -111,6 +110,7 @@ async def generate_align_tos(config: dict):
     :param config:
     :return:
     """
+    widget_map = get_widget_map()
     align_tos = tuple(
         w for w in widget_map.values() if w.config and CONF_ALIGN_TO in w.config
     )

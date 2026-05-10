@@ -12,8 +12,8 @@ from ..defines import (
     CONF_END_ANGLE,
     CONF_RADIUS,
     CONF_MAIN,
+    add_lv_use,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_angle_degrees, lv_text, pixels
 from ..lvcode import lv
 from ..types import LvType
@@ -49,7 +49,7 @@ class ArcLabelType(WidgetType):
         )
 
     async def to_code(self, w: Widget, config):
-        lvgl_components_required.add(CONF_ARCLABEL)
+        add_lv_use(CONF_ARCLABEL)
 
         # ----------------------------
         # Text

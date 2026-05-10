@@ -5,8 +5,7 @@ from esphome.const import CONF_DATE, CONF_ID, CONF_YEAR
 from esphome.core import Lambda
 
 from ..automation import action_to_code
-from ..defines import CONF_ITEMS, CONF_MAIN, call_lambda, literal
-from ..helpers import add_lv_use, lvgl_components_required
+from ..defines import CONF_ITEMS, CONF_MAIN, add_lv_use, call_lambda, literal
 from ..lv_validation import lv_int
 from ..lvcode import LocalVariable, LvConditional, lv, lv_add
 from ..types import LvCompound, LvType, ObjUpdateAction
@@ -107,7 +106,7 @@ class CalendarType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate code for calendar widget"""
-        lvgl_components_required.add("CALENDAR")
+        add_lv_use(CONF_CALENDAR)
 
         # Add header for month navigation (per LVGL docs:
         # https://docs.lvgl.io/master/widgets/calendar.html)

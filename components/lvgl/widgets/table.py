@@ -5,8 +5,8 @@ from ..defines import (
     CONF_COLUMN,
     CONF_ITEMS,
     CONF_MAIN,
+    add_lv_use,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_int, lv_text
 from ..lvcode import lv
 from ..types import LvType
@@ -71,7 +71,7 @@ class TableType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate code for table widget"""
-        lvgl_components_required.add("TABLE")
+        add_lv_use(CONF_TABLE)
 
         # Set row count
         if row_count := config.get(CONF_ROW_COUNT):

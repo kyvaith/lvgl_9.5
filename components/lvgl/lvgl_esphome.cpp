@@ -810,7 +810,6 @@ void LvglComponent::render_start_cb(lv_event_t *event) {
   comp->draw_start_();
 }
 
-lv_event_code_t lv_api_event;     // NOLINT
 lv_event_code_t lv_update_event;  // NOLINT
 void LvglComponent::dump_config() {
   ESP_LOGCONFIG(TAG,
@@ -883,7 +882,6 @@ void LvglComponent::esphome_lvgl_init() {
   profiler_init_custom();
 #endif
   lv_update_event = static_cast<lv_event_code_t>(lv_event_register_id());
-  lv_api_event = static_cast<lv_event_code_t>(lv_event_register_id());
 }
 
 void LvglComponent::add_event_cb(lv_obj_t *obj, event_callback_t callback, lv_event_code_t event) {
@@ -2114,7 +2112,7 @@ void LvSelectable::set_selected_text(const std::string &text, lv_anim_enable_t a
   auto index = std::find(this->options_.begin(), this->options_.end(), text);
   if (index != this->options_.end()) {
     this->set_selected_index(index - this->options_.begin(), anim);
-    lv_obj_send_event(this->obj, lv_api_event, nullptr);
+    lv_obj_send_event(this->obj, lv_update_event, nullptr);
   }
 }
 

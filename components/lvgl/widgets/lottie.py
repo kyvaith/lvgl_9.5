@@ -55,8 +55,7 @@ from esphome.const import CONF_FILE, CONF_HEIGHT, CONF_ID, CONF_RAW_DATA_ID, CON
 from esphome.core import CORE
 
 from ..automation import action_to_code
-from ..defines import CONF_AUTO_START, CONF_MAIN, CONF_SRC, literal
-from ..helpers import add_lv_use
+from ..defines import CONF_AUTO_START, CONF_MAIN, CONF_SRC, add_lv_use, literal
 from ..lv_validation import size
 from ..lvcode import lv
 from ..types import LvType, ObjUpdateAction

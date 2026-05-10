@@ -5,9 +5,9 @@ from ..defines import (
     CONF_MAIN,
     CONF_SCROLLBAR,
     CONF_SRC,
+    add_lv_use,
     literal,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_image, lv_text
 from ..lvcode import lv
 from ..types import LvType
@@ -48,7 +48,7 @@ class ListType(WidgetType):
         )
 
     async def to_code(self, w: Widget, config):
-        lvgl_components_required.add(CONF_LIST)
+        add_lv_use(CONF_LIST)
 
         # Add list items
         if items := config.get(CONF_ITEMS):

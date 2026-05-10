@@ -11,8 +11,8 @@ from esphome.const import CONF_STATE
 from ..defines import (
     CONF_MAIN,
     CONF_SRC,
+    add_lv_use,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_image
 from ..lvcode import lv, literal
 from ..types import LvType
@@ -61,7 +61,7 @@ class ImageButtonType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate C++ code for image button widget configuration"""
-        lvgl_components_required.add(CONF_IMGBTN)
+        add_lv_use(CONF_IMGBTN)
 
         # Set images for different states
         state_configs = [

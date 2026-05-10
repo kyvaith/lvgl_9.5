@@ -43,8 +43,7 @@ from esphome import codegen as cg, config_validation as cv
 from esphome.const import CONF_FILE, CONF_HEIGHT, CONF_ID, CONF_RAW_DATA_ID, CONF_WIDTH
 from esphome.core import CORE
 
-from ..defines import CONF_MAIN, CONF_SRC, literal
-from ..helpers import add_lv_use
+from ..defines import CONF_MAIN, CONF_SRC, add_lv_use, literal
 from ..lv_validation import size
 from ..lvcode import lv_obj
 from ..types import LvType, lv_obj_t

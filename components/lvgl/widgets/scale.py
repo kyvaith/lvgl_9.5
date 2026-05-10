@@ -62,9 +62,9 @@ from ..defines import (
     LV_OBJ_FLAG,
     LV_PART,
     LV_SCALE_MODE,
+    add_lv_use,
     literal,
 )
-from ..helpers import add_lv_use, lvgl_components_required
 from ..lv_validation import (
     LV_OPA,
     animated,
@@ -290,7 +290,6 @@ class ScaleType(NumberType):
 
     async def to_code(self, w: Widget, config):
         """Generate code for scale widget configuration."""
-        lvgl_components_required.add(CONF_SCALE)
         add_lv_use(CONF_SCALE)
 
         # Set scale mode

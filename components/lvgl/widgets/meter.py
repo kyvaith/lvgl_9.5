@@ -40,9 +40,9 @@ from ..defines import (
     LV_OBJ_FLAG,
     LV_PART,
     LV_SCALE_MODE,
+    add_lv_use,
     get_remapped_uses,
 )
-from ..helpers import add_lv_use, lvgl_components_required
 from ..lv_validation import (
     COLOR_NAMES,
     LV_OPA,
@@ -60,7 +60,6 @@ from ..lv_validation import (
     padding,
     pixels,
     pixels_or_percent,
-    requires_component,
     size,
 )
 from ..lvcode import LocalVariable, lv, lv_add, lv_expr, lv_obj
@@ -215,7 +214,7 @@ INDICATOR_SCHEMA = cv.Schema(
                     cv.GenerateID(CONF_IMAGE_ID): cv.declare_id(lv_image_t),
                 }
             ),
-            requires_component("image"),
+            cv.requires_component("image"),
         ),
         cv.Exclusive(CONF_ARC, CONF_INDICATORS): INDICATOR_ARC_SCHEMA.extend(
             {
@@ -363,7 +362,7 @@ class MeterType(WidgetType):
     async def create_to_code(self, config: dict, parent: MockObj):
         """For a meter object using scale widget, create and set parameters"""
 
-        lvgl_components_required.add("scale")  # Use scale component
+        add_lv_use("scale")  # Use scale component
         outer_config = config.copy()
         indicator_config = {CONF_INDICATOR: outer_config.pop(CONF_TICKS, {})}
         w = await super().create_to_code(outer_config, parent)

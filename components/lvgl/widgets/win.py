@@ -16,9 +16,9 @@ from ..defines import (
     CONF_MAIN,
     CONF_SRC,
     CONF_TITLE,
+    add_lv_use,
     literal,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_image, lv_text
 from ..lvcode import lv, lv_expr
 from ..types import LvType
@@ -57,7 +57,7 @@ class WindowType(WidgetType):
         )
 
     async def to_code(self, w: Widget, config):
-        lvgl_components_required.add(CONF_WIN)
+        add_lv_use(CONF_WIN)
 
         # Add title to window header
         title = await lv_text.process(config[CONF_TITLE])

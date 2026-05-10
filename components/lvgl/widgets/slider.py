@@ -7,9 +7,9 @@ from ..defines import (
     CONF_KNOB,
     CONF_MAIN,
     SLIDER_MODES,
+    add_lv_use,
     literal,
 )
-from ..helpers import add_lv_use
 from ..lv_validation import animated, get_start_value, lv_float
 from ..lvcode import lv
 from ..types import LvNumber

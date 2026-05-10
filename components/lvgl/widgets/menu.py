@@ -20,9 +20,9 @@ from ..defines import (
     CONF_PAGE,
     CONF_SIDEBAR,
     CONF_TITLE,
+    add_lv_use,
     literal,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_bool, lv_text
 from ..lvcode import lv, lv_assign, lv_expr, lv_Pvariable
 from ..schemas import container_schema
@@ -79,7 +79,7 @@ class MenuType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate C++ code for menu widget configuration"""
-        lvgl_components_required.add(CONF_MENU)
+        add_lv_use(CONF_MENU)
 
         # Set header display mode
         header_mode = MENU_HEADER_MODES[config[CONF_MODE]]

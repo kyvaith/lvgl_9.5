@@ -33,10 +33,10 @@ from ..defines import (
     CONF_ITEMS,
     CONF_MAIN,
     CONF_SCROLLBAR,
+    add_lv_use,
     call_lambda,
     literal,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_color, lv_int
 from ..lvcode import lv, lv_add, lv_assign, lv_expr, lv_Pvariable
 from ..types import LvType, ObjUpdateAction
@@ -190,7 +190,7 @@ class ChartType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate C++ code for chart widget configuration"""
-        lvgl_components_required.add(CONF_CHART)
+        add_lv_use(CONF_CHART)
 
         # Set chart type
         chart_type = CHART_TYPES[config[CONF_TYPE]]

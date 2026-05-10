@@ -31,16 +31,14 @@ from .defines import (
     LValidator,
     LvConstant,
     StaticCastExpression,
+    add_lv_use,
     call_lambda,
+    get_esphome_fonts_used,
+    get_lv_fonts_used,
+    get_lv_images_used,
     literal,
 )
-from .helpers import (
-    CONF_IF_NAN,
-    add_lv_use,
-    esphome_fonts_used,
-    lv_fonts_used,
-    requires_component,
-)
+from .helpers import CONF_IF_NAN
 from .types import lv_coord_t, lv_gradient_t, lv_opa_t
 
 LV_OPA = LvConstant("LV_OPA_", "TRANSP", "COVER")
@@ -370,9 +368,6 @@ def stop_value(value):
     return cv.int_range(0, 255)(value)
 
 
-lv_images_used = set()
-
-
 def image_validator(value):
     # Accept multiple image source types:
     # 1. Image_ ID - standard ESPHome image (image: component)
@@ -386,7 +381,7 @@ def image_validator(value):
     # Try Image_ first - covers both standard images AND SdImageComponent
     try:
         value_id = cv.use_id(Image_)(value)
-        lv_images_used.add(value_id)
+        get_lv_images_used().add(value_id)
         add_lv_use("img", "label")
         return value_id
     except cv.Invalid:
@@ -535,7 +530,7 @@ class LvFont(LValidator):
     def __init__(self):
         def lv_builtin_font(value):
             fontval = cv.one_of(*LV_FONTS, lower=True)(value)
-            lv_fonts_used.add(fontval)
+            get_lv_fonts_used().add(fontval)
             return fontval
 
         def validator(value):
@@ -545,8 +540,8 @@ class LvFont(LValidator):
                 return lv_builtin_font(value)
             add_lv_use("font")
             fontval = cv.use_id(Font)(value)
-            esphome_fonts_used.add(fontval)
-            return requires_component("font")(fontval)
+            get_esphome_fonts_used().add(fontval)
+            return cv.requires_component("font")(fontval)
 
         # Use font::Font* as return type for lambdas returning ESPHome fonts
         # The inline overloads in lvgl_esphome.h handle conversion to lv_font_t*

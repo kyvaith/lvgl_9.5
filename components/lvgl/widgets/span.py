@@ -10,9 +10,9 @@ from esphome.const import CONF_ID, CONF_MODE, CONF_TEXT
 
 from ..defines import (
     CONF_MAIN,
+    add_lv_use,
     literal,
 )
-from ..helpers import lvgl_components_required
 from ..lv_validation import lv_color, lv_text
 from ..lvcode import lv, lv_expr
 from ..types import LvType
@@ -80,7 +80,7 @@ class SpangroupType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         """Generate C++ code for spangroup widget configuration"""
-        lvgl_components_required.add(CONF_SPANGROUP)
+        add_lv_use(CONF_SPANGROUP)
 
         # Set span mode
         mode = SPAN_MODES[config[CONF_MODE]]
