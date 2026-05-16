@@ -879,7 +879,11 @@ void LvglComponent::setup() {
 #ifdef USE_LVGL_FPS_BENCHMARK
   // Espressif esp_lvgl_adapter FPS sampler — prints a P10/25/50/75/90
   // report after ~200 samples (or sustained low-FPS detection).
+  ESP_LOGI(TAG, "FPS benchmark: calling attach() for disp=%p", this->disp_);
   lvgl_fps_benchmark_attach(this->disp_);
+  ESP_LOGI(TAG, "FPS benchmark: attach() returned");
+#else
+  ESP_LOGI(TAG, "FPS benchmark: not compiled in (USE_LVGL_FPS_BENCHMARK undefined)");
 #endif
 }
 

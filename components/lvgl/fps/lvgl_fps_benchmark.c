@@ -275,9 +275,16 @@ static void fps_sampler_task(void *arg)
 
 void lvgl_fps_benchmark_attach(lv_display_t *display)
 {
-    if (!display) return;
+    /* Log unconditionally on entry so we can verify this TU is linked
+       and the call site reaches us. */
+    ESP_LOGI(TAG_FPS, ">>> attach() entered, display=%p", display);
+
+    if (!display) {
+        ESP_LOGE(TAG_FPS, "display is NULL, aborting");
+        return;
+    }
     if (s_ctx.disp) {
-        ESP_LOGW(TAG_FPS, "already attached");
+        ESP_LOGW(TAG_FPS, "already attached to %p", s_ctx.disp);
         return;
     }
 
@@ -289,20 +296,29 @@ void lvgl_fps_benchmark_attach(lv_display_t *display)
         ESP_LOGE(TAG_FPS, "mutex alloc failed");
         return;
     }
+    ESP_LOGI(TAG_FPS, "mutex created, registering REFR_READY cb...");
 
     lv_display_add_event_cb(display, fps_refr_ready_cb, LV_EVENT_REFR_READY, NULL);
 
+    ESP_LOGI(TAG_FPS, "cb registered, creating sampler task...");
     BaseType_t r = xTaskCreate(fps_sampler_task, "lvgl_fps", 4096, NULL, 3, NULL);
     if (r != pdPASS) {
-        ESP_LOGE(TAG_FPS, "task create failed");
+        ESP_LOGE(TAG_FPS, "task create failed (r=%d)", (int)r);
         return;
     }
-    ESP_LOGI(TAG_FPS, "attached to display, warmup %d ms", FPS_STARTUP_DELAY_MS);
+    ESP_LOGI(TAG_FPS, "<<< attach() done, warmup %d ms", FPS_STARTUP_DELAY_MS);
 }
 
 #else  /* !USE_LVGL_FPS_BENCHMARK */
 
-void lvgl_fps_benchmark_attach(lv_display_t *display) { (void)display; }
+#include "esp_log.h"
+static const char *TAG_FPS_STUB = "lvgl_fps";
+void lvgl_fps_benchmark_attach(lv_display_t *display) {
+    (void)display;
+    /* If you see this log, the stub linked instead of the real impl —
+       USE_LVGL_FPS_BENCHMARK was not defined when this TU was compiled. */
+    ESP_LOGE(TAG_FPS_STUB, "STUB attach() called — real impl was NOT linked");
+}
 void lvgl_fps_benchmark_print(void) {}
 
 #endif /* USE_LVGL_FPS_BENCHMARK */
