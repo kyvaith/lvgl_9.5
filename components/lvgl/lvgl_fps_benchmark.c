@@ -13,6 +13,9 @@
  */
 
 #include "lvgl_fps_benchmark.h"
+
+#ifdef USE_LVGL_FPS_BENCHMARK
+
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -296,3 +299,10 @@ void lvgl_fps_benchmark_attach(lv_display_t *display)
     }
     ESP_LOGI(TAG_FPS, "attached to display, warmup %d ms", FPS_STARTUP_DELAY_MS);
 }
+
+#else  /* !USE_LVGL_FPS_BENCHMARK */
+
+void lvgl_fps_benchmark_attach(lv_display_t *display) { (void)display; }
+void lvgl_fps_benchmark_print(void) {}
+
+#endif /* USE_LVGL_FPS_BENCHMARK */
