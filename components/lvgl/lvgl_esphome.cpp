@@ -904,7 +904,19 @@ void LvglComponent::loop() {
     if (this->paused_ && this->show_snow_)
       this->write_random_();
   } else {
-    lv_timer_handler();
+    // Respect lv_timer_handler()'s "time until next timer" so LVGL can
+    // measure real idle periods between calls. Without this gate, ESPHome's
+    // main loop hammers lv_timer_handler() back-to-back and the sysmon CPU%
+    // is pinned at 100. Cap the gap to 50 ms so UI stays responsive.
+    uint32_t now = millis();
+    if ((int32_t)(now - this->next_lv_call_at_) >= 0) {
+      uint32_t next_ms = lv_timer_handler();
+      if (next_ms == LV_NO_TIMER_READY)
+        next_ms = 50;
+      else if (next_ms > 50)
+        next_ms = 50;
+      this->next_lv_call_at_ = now + next_ms;
+    }
   }
 }
 
