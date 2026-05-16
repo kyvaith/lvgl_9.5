@@ -10,6 +10,7 @@
 #include "driver/ppa.h"
 extern "C" {
 void lv_draw_ppa_init(void);
+void lvgl_port_ppa_v9_init(lv_display_t *display);
 }
 #endif
 
@@ -861,6 +862,13 @@ void LvglComponent::setup() {
   lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
+
+#ifdef USE_LVGL_PPA
+  // Espressif esp-iot-solution PPA SW blend handler — accelerates all
+  // RGB565 SW blend paths (text, gradients post-rasterize, partial blends).
+  // Complements the higher-level PPA draw unit in lv_draw_ppa.c.
+  lvgl_port_ppa_v9_init(this->disp_);
+#endif
 }
 
 void LvglComponent::update() {
