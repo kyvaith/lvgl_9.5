@@ -279,7 +279,9 @@ async def to_code(configs):
         cg.add_define("LV_USE_PPA_IMG")
     if config_0.get(CONF_USE_FPS_BENCHMARK, False):
         # Espressif esp_lvgl_adapter FPS sampler (P10/25/50/75/90 report).
-        cg.add_define("USE_LVGL_FPS_BENCHMARK")
+        # Use add_build_flag (not add_define) so the macro reaches the .c
+        # file directly — it doesn't include esphome/core/defines.h.
+        cg.add_build_flag("-DUSE_LVGL_FPS_BENCHMARK=1")
     if config_0.get(CONF_USE_PERF_MONITOR, False):
         # On-screen FPS/CPU overlay (bottom-right corner, native LVGL widget).
         # Perf monitor is gated by LV_USE_SYSMON in lv_conf_internal.h, which
