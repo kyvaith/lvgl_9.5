@@ -289,6 +289,9 @@ async def to_code(configs):
         df.add_define("LV_USE_PERF_MONITOR", "1")
         df.add_define("LV_USE_PERF_MONITOR_POS", "LV_ALIGN_BOTTOM_RIGHT")
         df.add_define("LV_USE_PERF_MONITOR_LOG_MODE", "0")
+        # Signal lvgl_build_filter.py to keep src/debugging/sysmon/* sources
+        # (excluded by default to save flash).
+        cg.add_build_flag("-DLVGL_USE_SYSMON=1")
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
 
     # ============================================

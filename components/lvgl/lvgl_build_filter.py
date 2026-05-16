@@ -17,6 +17,7 @@ Import("env")
 # Parse build flags from ESPHome's __init__.py
 _build_flags = " ".join(env.get("BUILD_FLAGS", []))
 _thorvg_enabled = "LVGL_USE_THORVG=1" in _build_flags
+_sysmon_enabled = "LVGL_USE_SYSMON=1" in _build_flags
 
 # Extract used widgets list from build flags
 # Format: -DLVGL_WIDGETS_USED=\"label,button,slider,...\"
@@ -177,8 +178,9 @@ def lvgl_src_filter(env, node):
         "/debugging/monkey/",               # Monkey testing
         "/debugging/test/",                 # Test helpers
         "/debugging/vg_lite_tvg/",          # VG-Lite ThorVG debug
-        "/debugging/sysmon/lv_sysmon.",     # System monitor
     ]
+    if not _sysmon_enabled:
+        EXCLUDED_DEBUG.append("/debugging/sysmon/lv_sysmon.")
 
     # Combine platform exclusions (always applied)
     all_excluded = (
