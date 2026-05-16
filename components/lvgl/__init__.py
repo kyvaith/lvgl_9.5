@@ -282,6 +282,10 @@ async def to_code(configs):
         cg.add_define("USE_LVGL_FPS_BENCHMARK")
     if config_0.get(CONF_USE_PERF_MONITOR, False):
         # On-screen FPS/CPU overlay (bottom-right corner, native LVGL widget).
+        # Perf monitor is gated by LV_USE_SYSMON in lv_conf_internal.h, which
+        # is itself gated by LV_USE_LOG (text rendering for the label).
+        df.add_define("LV_USE_LOG", "1")
+        df.add_define("LV_USE_SYSMON", "1")
         df.add_define("LV_USE_PERF_MONITOR", "1")
         df.add_define("LV_USE_PERF_MONITOR_POS", "LV_ALIGN_BOTTOM_RIGHT")
         df.add_define("LV_USE_PERF_MONITOR_LOG_MODE", "0")
