@@ -23,7 +23,7 @@ static const char * TAG = "ppa_draw";
 
 /* Instrumentation — dump per-batch stats every PPA_STATS_INTERVAL_MS so we
    can see HW activity on the log. Set to 0 to silence. */
-#define PPA_STATS_INTERVAL_MS 2000
+#define PPA_STATS_INTERVAL_MS 1000
 static uint32_t s_ppa_fills_accepted = 0;
 static uint32_t s_ppa_imgs_accepted  = 0;
 static uint32_t s_ppa_imgs_rotated   = 0;
@@ -129,6 +129,14 @@ void lv_draw_ppa_deinit(void)
  **********************/
 static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 {
+    /* One-time "I'm alive" log after LVGL/logger fully up, in case the
+       init-time log got eaten by an early-boot vprintf swap. */
+    static bool s_first_call_logged = false;
+    if (!s_first_call_logged) {
+        s_first_call_logged = true;
+        ESP_LOGI(TAG, "first ppa_evaluate() call — draw unit is live (idx=%d, task type=%d)",
+                 (int)draw_unit->idx, (int)t->type);
+    }
     ppa_draw_stats_maybe_log();
     s_ppa_eval_called++;
     switch(t->type) {
