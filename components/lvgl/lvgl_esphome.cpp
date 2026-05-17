@@ -235,13 +235,19 @@ void LvglComponent::set_paused(bool paused, bool show_snow) {
 void LvglComponent::esphome_lvgl_init() {
   lv_init();
 #ifdef USE_LVGL_PPA
-  // Initialize PPA draw unit after lv_init()
-  // Uses custom PPA code (based on https://github.com/lvgl/lvgl/pull/9162)
-  // LVGL 9.5 includes this fix natively; kept as fallback
-  lv_draw_ppa_init();
+  // Espressif esp_lvgl_adapter matches: PPA acceleration goes through the
+  // SW blend handler (lvgl_ppa_accel_v9.c) hooked via
+  // lv_draw_sw_register_blend_handler — not a separate draw unit. The
+  // adapter has NO full PPA draw unit. Disabling lv_draw_ppa_init() here
+  // gives RGB565 blends/fills to the SW pipeline where v9 intercepts them
+  // and dispatches to PPA hardware. This matches the upstream Espressif
+  // benchmark behavior.
+  //
+  // (Old code: lv_draw_ppa_init();  — kept the source for fallback but
+  // dead-code at runtime as long as this call is commented.)
 
   // Register a dedicated PPA SRM client for display framebuffer rotation.
-  // Kept separate from the LVGL draw unit's SRM client to avoid contention.
+  // This is independent of the LVGL draw pipeline and stays enabled.
   if (s_display_srm_client == nullptr) {
     ppa_client_config_t srm_cfg = {};
     srm_cfg.oper_type = PPA_OPERATION_SRM;
