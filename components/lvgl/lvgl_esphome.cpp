@@ -971,8 +971,10 @@ void LvglComponent::loop() {
                             : 0;
       uint32_t cpu_pct = (uint32_t)((cpu_us * 100ULL) / elapsed_us);
       if (cpu_pct > 100) cpu_pct = 100;
-      s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle
-      ESP_LOGD(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
+      s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
+      // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
+      // need the breakdown. Default DEBUG/INFO levels stay silent.
+      ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
                (unsigned)cpu_pct,
                (unsigned long long)cpu_us,
                (unsigned long long)this->perf_flush_us_,
