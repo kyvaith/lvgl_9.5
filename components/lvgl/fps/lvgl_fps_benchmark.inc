@@ -273,7 +273,7 @@ static void fps_sampler_task(void *arg)
     vTaskDelete(NULL);
 }
 
-void lvgl_fps_benchmark_attach(lv_display_t *display)
+void lvgl_fps_attach_v2(lv_display_t *display)
 {
     /* Log unconditionally on entry so we can verify this TU is linked
        and the call site reaches us. */
@@ -313,7 +313,7 @@ void lvgl_fps_benchmark_attach(lv_display_t *display)
 
 #include "esp_log.h"
 static const char *TAG_FPS_STUB = "lvgl";
-void lvgl_fps_benchmark_attach(lv_display_t *display) {
+void lvgl_fps_attach_v2(lv_display_t *display) {
     (void)display;
     /* If you see this log, the stub linked instead of the real impl —
        USE_LVGL_FPS_BENCHMARK was not defined when this TU was compiled. */

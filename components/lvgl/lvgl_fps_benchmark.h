@@ -16,7 +16,7 @@ extern "C" {
 
 /* Attach sampler to a display. Starts after ~5s warmup, auto-stops on
    200 samples or sustained low-FPS plateau, prints the report once. */
-void lvgl_fps_benchmark_attach(lv_display_t *display);
+void lvgl_fps_attach_v2(lv_display_t *display);
 
 /* Force-print the current report (e.g. from a HA button). Safe to call
    any time after attach; no-op if no samples yet. */
