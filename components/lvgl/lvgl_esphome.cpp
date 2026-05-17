@@ -38,6 +38,20 @@ static uint32_t lvgl_tick_cb() {
   return millis() - s_flush_pause_ms;
 }
 
+// Last computed CPU% in loop() — published for the linker wrap below.
+static volatile uint32_t s_cpu_pct = 0;
+
+// Linker wrap (PlatformIO LDFLAG -Wl,--wrap=lv_timer_get_idle).
+// LVGL's sysmon perf widget computes `cpu = 100 - lv_timer_get_idle()`.
+// We hijack that getter so the on-screen overlay shows the CPU%
+// we calculate in loop() — which excludes DSI flush wait — instead of
+// LVGL's internal busy-time heuristic that pins it at 100.
+extern "C" uint32_t __wrap_lv_timer_get_idle(void) {
+  uint32_t cpu = s_cpu_pct;
+  if (cpu > 100) cpu = 100;
+  return 100 - cpu;
+}
+
 #ifdef USE_LVGL_PPA
 /// Dedicated PPA SRM client for display framebuffer rotation (separate from LVGL draw unit).
 static ppa_client_handle_t s_display_srm_client = nullptr;
@@ -960,6 +974,7 @@ void LvglComponent::loop() {
     if (elapsed_us >= 1000000) {
       this->cpu_pct_ = (uint32_t)((this->perf_busy_us_ * 100ULL) / elapsed_us);
       if (this->cpu_pct_ > 100) this->cpu_pct_ = 100;
+      s_cpu_pct = this->cpu_pct_;
       this->fps_ = (uint32_t)((uint64_t)this->perf_frame_count_ * 1000000ULL / elapsed_us);
       ESP_LOGD(TAG, "perf: %u fps, CPU %u%%, busy %llu us / wall %llu us",
                (unsigned)this->fps_, (unsigned)this->cpu_pct_,
