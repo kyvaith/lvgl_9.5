@@ -295,11 +295,6 @@ async def to_code(configs):
         # Signal lvgl_build_filter.py to keep src/debugging/sysmon/* sources
         # (excluded by default to save flash).
         cg.add_build_flag("-DLVGL_USE_SYSMON=1")
-        # Wrap lv_timer_get_idle so sysmon's CPU% reads our real measurement
-        # instead of LVGL's internal busy-time heuristic (which mis-counts DSI
-        # flush waits as CPU work and saturates to 100%). Our wrapper lives in
-        # lvgl_esphome.cpp.
-        cg.add_build_flag("-Wl,--wrap=lv_timer_get_idle")
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
 
     # ============================================
