@@ -34,6 +34,42 @@
 
 static const char *TAG_V9 = "ppa_v9";
 
+/* Instrumentation: how many ops landed on hardware vs the SW fallback,
+   reported once every PPA_STATS_INTERVAL_MS to confirm acceleration is
+   live. Set PPA_STATS_INTERVAL_MS to 0 to silence. */
+#define PPA_STATS_INTERVAL_MS 2000
+
+static uint32_t s_ppa_hw_fills   = 0;
+static uint32_t s_ppa_hw_blends  = 0;
+static uint32_t s_ppa_sw_fallback = 0;
+static uint32_t s_ppa_stats_last_log_ms = 0;
+
+#include "esp_timer.h"
+static inline uint32_t ppa_now_ms(void) {
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+static void ppa_stats_maybe_log(void) {
+#if PPA_STATS_INTERVAL_MS > 0
+    uint32_t now = ppa_now_ms();
+    if (s_ppa_stats_last_log_ms == 0) s_ppa_stats_last_log_ms = now;
+    if (now - s_ppa_stats_last_log_ms >= PPA_STATS_INTERVAL_MS) {
+        uint32_t total = s_ppa_hw_fills + s_ppa_hw_blends + s_ppa_sw_fallback;
+        if (total > 0) {
+            uint32_t hw = s_ppa_hw_fills + s_ppa_hw_blends;
+            ESP_LOGI(TAG_V9, "ops/2s: HW=%lu (fill=%lu, blend=%lu)  SW=%lu  hw_ratio=%lu%%",
+                     (unsigned long)hw, (unsigned long)s_ppa_hw_fills,
+                     (unsigned long)s_ppa_hw_blends, (unsigned long)s_ppa_sw_fallback,
+                     (unsigned long)(hw * 100 / total));
+        }
+        s_ppa_hw_fills = 0;
+        s_ppa_hw_blends = 0;
+        s_ppa_sw_fallback = 0;
+        s_ppa_stats_last_log_ms = now;
+    }
+#endif
+}
+
 static ppa_client_handle_t s_blend_handle = NULL;
 static ppa_client_handle_t s_fill_handle = NULL;
 static size_t s_cache_align = 0;
@@ -277,8 +313,17 @@ static void lv_draw_ppa_v9_sw_fallback(lv_draw_task_t *t, const lv_draw_sw_blend
     lv_draw_sw_blend_image_to_rgb565(&image_dsc);
 }
 
+/* Wrap the SW fallback so we don't have to instrument every call site. */
+static inline void lv_draw_ppa_v9_sw_fallback_tracked(lv_draw_task_t *t,
+                                                       const lv_draw_sw_blend_dsc_t *dsc) {
+    s_ppa_sw_fallback++;
+    lv_draw_ppa_v9_sw_fallback(t, dsc);
+}
+#define lv_draw_ppa_v9_sw_fallback(t, dsc) lv_draw_ppa_v9_sw_fallback_tracked((t), (dsc))
+
 static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc_t *dsc)
 {
+    ppa_stats_maybe_log();
     lv_layer_t *layer = t->target_layer;
     if (!layer || !layer->draw_buf || layer->color_format != LV_COLOR_FORMAT_RGB565) {
         lv_draw_ppa_v9_sw_fallback(t, dsc);
@@ -351,6 +396,7 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
         }
 
         uint16_t src_stride_px = src_stride / src_px_size;
+        s_ppa_hw_blends++;
         ppa_blend(bg_buf, &layer->buf_area, (const lv_color_t *)dsc->src_buf,
                   src_area, src_stride_px, &block_area, dsc->opa);
 
@@ -359,6 +405,7 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
     }
 
     if (dsc->opa >= LV_OPA_MAX) {
+        s_ppa_hw_fills++;
         ppa_fill(bg_buf, &layer->buf_area, &block_area, dsc->color);
         ppa_cache_invalidate(&block_area, &layer->buf_area, bg_buf);
         return;
