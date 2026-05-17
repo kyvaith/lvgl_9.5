@@ -72,9 +72,10 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
     return false;
 
   // ESP32-P4 PPA requires both buffer address and buffer_size to be aligned
-  // to the data cache line size (64 bytes). If inputs aren't aligned, fall
-  // back to software rotation rather than flood the log with PPA errors.
-  constexpr uintptr_t CACHE_LINE = 64;
+  // to the data cache line size — 64 B by default, 128 B if
+  // CONFIG_CACHE_L2_CACHE_LINE_128B=y. Use the larger value so the check
+  // passes under both sdkconfigs.
+  constexpr uintptr_t CACHE_LINE = 128;
   if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0)
     return false;
   if ((reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0)
@@ -817,10 +818,12 @@ void LvglComponent::setup() {
   constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
 #endif
   auto buf_bytes = width * height / frac * BYTES_PER_PIXEL;
-  // Fix for issue #9868: Align buffer size to 64 bytes for PPA/cache compatibility
-  // on ESP32-P4. esp_cache_msync() requires both address AND size to be cache-line
-  // aligned (64 bytes). Without this, PPA operations fail on PSRAM buffers.
-  constexpr size_t BUF_SIZE_ALIGN = 64;
+  // Align buffer size to the data cache line (128 B if
+  // CONFIG_CACHE_L2_CACHE_LINE_128B=y, else 64 B is enough). 128 satisfies
+  // both — esp_cache_msync() + PPA require both address AND size to be
+  // cache-line aligned. Without this, PPA operations fail on PSRAM buffers
+  // ('out.buffer addr or out.buffer_size not aligned to cache line size').
+  constexpr size_t BUF_SIZE_ALIGN = 128;
   buf_bytes = (buf_bytes + BUF_SIZE_ALIGN - 1) & ~(BUF_SIZE_ALIGN - 1);
   void *buffer = nullptr;
 
@@ -829,13 +832,14 @@ void LvglComponent::setup() {
   // (required for PPA on ESP32-P4), then fall back to PSRAM with cache sync.
   auto alloc_draw_buf = [](size_t sz) -> void * {
 #if defined(USE_LVGL_PPA) && defined(USE_ESP32)
-    // Round size up to 64-byte cache line so PPA buffer_size checks pass
-    size_t aligned_sz = (sz + 63) & ~size_t{63};
-    void *p = heap_caps_aligned_alloc(64, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    // Round size up to 128-byte cache line so PPA buffer_size checks pass
+    // on both 64 B and 128 B cache-line sdkconfigs.
+    size_t aligned_sz = (sz + 127) & ~size_t{127};
+    void *p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (p != nullptr)
       return p;
-    // Internal DMA SRAM full → PSRAM (still 64-byte aligned, PPA can use it with cache sync)
-    p = heap_caps_aligned_alloc(64, aligned_sz, MALLOC_CAP_SPIRAM);
+    // Internal DMA SRAM full → PSRAM (128-byte aligned for 128 B cache line)
+    p = heap_caps_aligned_alloc(128, aligned_sz, MALLOC_CAP_SPIRAM);
     if (p != nullptr)
       return p;
 #endif
