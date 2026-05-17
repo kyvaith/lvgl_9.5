@@ -165,6 +165,7 @@ class LvglComponent : public PollingComponent {
 
   static void render_end_cb(lv_event_t *event);
   static void render_start_cb(lv_event_t *event);
+  static void perf_frame_cb(lv_event_t *event);
   void dump_config() override;
   lv_display_t *get_disp() { return this->disp_; }
   lv_obj_t *get_screen_active() { return lv_display_get_screen_active(this->disp_); }
@@ -215,6 +216,11 @@ class LvglComponent : public PollingComponent {
   void set_draw_end_trigger(Trigger<> *trigger) { this->draw_end_callback_ = trigger; }
   // Check if loop() has started - safe to perform LVGL operations
   bool is_loop_started() const { return this->loop_started_; }
+  // Runtime perf stats, computed in loop() over a sliding 1s window.
+  // get_cpu_pct() returns the % of wall time spent inside lv_timer_handler().
+  // get_fps() returns frames-per-second (counted from LV_EVENT_REFR_READY).
+  uint32_t get_cpu_pct() const { return this->cpu_pct_; }
+  uint32_t get_fps() const { return this->fps_; }
 
  protected:
   void draw_end_();
@@ -254,6 +260,12 @@ class LvglComponent : public PollingComponent {
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};  // safe to perform LVGL ops only after loop() starts
   uint32_t next_lv_call_at_{0};  // millis() gate for lv_timer_handler() (idle accounting)
+  // Sliding 1s perf window
+  uint64_t perf_window_start_us_{0};
+  uint64_t perf_busy_us_{0};
+  uint32_t perf_frame_count_{0};
+  uint32_t cpu_pct_{0};
+  uint32_t fps_{0};
 };
 
 class IdleTrigger : public Trigger<> {

@@ -8,6 +8,7 @@
 
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
+#include "esp_timer.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 void lvgl_port_ppa_v9_init(lv_display_t *display);
@@ -198,6 +199,11 @@ static void rounder_cb(lv_event_t *event) {
 void LvglComponent::render_end_cb(lv_event_t *event) {
   auto *comp = static_cast<LvglComponent *>(lv_event_get_user_data(event));
   comp->draw_end_();
+}
+
+void LvglComponent::perf_frame_cb(lv_event_t *event) {
+  auto *comp = static_cast<LvglComponent *>(lv_event_get_user_data(event));
+  comp->perf_frame_count_++;
 }
 
 void LvglComponent::render_start_cb(lv_event_t *event) {
@@ -845,6 +851,8 @@ void LvglComponent::setup() {
   if (this->draw_end_callback_ != nullptr || this->update_when_display_idle_) {
     lv_display_add_event_cb(this->disp_, render_end_cb, LV_EVENT_REFR_READY, this);
   }
+  // Always count completed refreshes for get_fps() / get_cpu_pct().
+  lv_display_add_event_cb(this->disp_, perf_frame_cb, LV_EVENT_REFR_READY, this);
 #if LV_USE_LOG
   lv_log_register_print_cb([](lv_log_level_t level, const char *buf) {
     auto next = strchr(buf, ')');
@@ -915,12 +923,32 @@ void LvglComponent::loop() {
     // and cap it at 50 ms (≥20 Hz) to stay responsive on idle screens.
     uint32_t now = millis();
     if ((int32_t)(now - this->next_lv_call_at_) >= 0) {
+      uint64_t t0 = esp_timer_get_time();
       uint32_t next_ms = lv_timer_handler();
+      uint64_t t1 = esp_timer_get_time();
+      this->perf_busy_us_ += (t1 - t0);
       if (next_ms == LV_NO_TIMER_READY || next_ms > 50)
         next_ms = 50;
       if (next_ms < 5)
         next_ms = 5;
       this->next_lv_call_at_ = now + next_ms;
+    }
+
+    // Sliding 1 s perf window — recompute cpu_pct_ and fps_.
+    uint64_t now_us = esp_timer_get_time();
+    if (this->perf_window_start_us_ == 0)
+      this->perf_window_start_us_ = now_us;
+    uint64_t elapsed_us = now_us - this->perf_window_start_us_;
+    if (elapsed_us >= 1000000) {
+      this->cpu_pct_ = (uint32_t)((this->perf_busy_us_ * 100ULL) / elapsed_us);
+      if (this->cpu_pct_ > 100) this->cpu_pct_ = 100;
+      this->fps_ = (uint32_t)((uint64_t)this->perf_frame_count_ * 1000000ULL / elapsed_us);
+      ESP_LOGD(TAG, "perf: %u fps, CPU %u%%, busy %llu us / wall %llu us",
+               (unsigned)this->fps_, (unsigned)this->cpu_pct_,
+               (unsigned long long)this->perf_busy_us_, (unsigned long long)elapsed_us);
+      this->perf_busy_us_ = 0;
+      this->perf_frame_count_ = 0;
+      this->perf_window_start_us_ = now_us;
     }
   }
 }
