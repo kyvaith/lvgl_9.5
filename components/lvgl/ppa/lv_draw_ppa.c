@@ -16,43 +16,7 @@
  *********************/
 #define PPA_BUF_ALIGN     16  /* PPA needs at least 16-byte aligned buffers (128-bit burst) */
 
-static const char * TAG = "lvgl";  /* reuse the lvgl tag — known to pass user log filters */
-
-#include "esp_log.h"
-#include "esp_timer.h"
-
-/* Instrumentation — dump per-batch stats every PPA_DRAW_STATS_INTERVAL_MS so we
-   can see HW activity on the log. Set to 0 to silence. */
-#define PPA_DRAW_STATS_INTERVAL_MS 1000
-static uint32_t s_ppa_draw_fills_accepted = 0;
-static uint32_t s_ppa_draw_imgs_accepted  = 0;
-static uint32_t s_ppa_draw_imgs_rotated   = 0;
-static uint32_t s_ppa_draw_eval_called    = 0;
-static int64_t  s_ppa_draw_stats_last_us  = 0;
-
-static void ppa_draw_stats_maybe_log(void) {
-#if PPA_DRAW_STATS_INTERVAL_MS > 0
-    int64_t now = esp_timer_get_time();
-    if (s_ppa_draw_stats_last_us == 0) s_ppa_draw_stats_last_us = now;
-    if ((now - s_ppa_draw_stats_last_us) / 1000 >= PPA_DRAW_STATS_INTERVAL_MS) {
-        uint32_t hw = s_ppa_draw_fills_accepted + s_ppa_draw_imgs_accepted + s_ppa_draw_imgs_rotated;
-        if (s_ppa_draw_eval_called > 0) {
-            ESP_LOGI(TAG, "ppa tasks/%dms: HW=%lu (fill=%lu, img=%lu, img_rot=%lu)  evaluated=%lu",
-                     PPA_DRAW_STATS_INTERVAL_MS,
-                     (unsigned long)hw,
-                     (unsigned long)s_ppa_draw_fills_accepted,
-                     (unsigned long)s_ppa_draw_imgs_accepted,
-                     (unsigned long)s_ppa_draw_imgs_rotated,
-                     (unsigned long)s_ppa_draw_eval_called);
-        }
-        s_ppa_draw_fills_accepted = 0;
-        s_ppa_draw_imgs_accepted = 0;
-        s_ppa_draw_imgs_rotated = 0;
-        s_ppa_draw_eval_called = 0;
-        s_ppa_draw_stats_last_us = now;
-    }
-#endif
-}
+static const char * TAG = "ppa_draw";
 
 /* Check if a draw buffer is suitable for PPA (non-NULL, aligned, has data) */
 static inline bool ppa_buf_usable(lv_draw_buf_t * buf)
@@ -129,16 +93,6 @@ void lv_draw_ppa_deinit(void)
  **********************/
 static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
 {
-    /* One-time "I'm alive" log after LVGL/logger fully up, in case the
-       init-time log got eaten by an early-boot vprintf swap. */
-    static bool s_first_call_logged = false;
-    if (!s_first_call_logged) {
-        s_first_call_logged = true;
-        ESP_LOGI(TAG, "first ppa_evaluate() call — draw unit is live (idx=%d, task type=%d)",
-                 (int)draw_unit->idx, (int)t->type);
-    }
-    ppa_draw_stats_maybe_log();
-    s_ppa_draw_eval_called++;
     switch(t->type) {
         case LV_DRAW_TASK_TYPE_FILL: {
             const lv_draw_fill_dsc_t * dsc = (const lv_draw_fill_dsc_t *)t->draw_dsc;
@@ -250,19 +204,16 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
             switch(t->type) {
                 case LV_DRAW_TASK_TYPE_FILL:
                     lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
-                    s_ppa_draw_fills_accepted++;
                     break;
                 case LV_DRAW_TASK_TYPE_IMAGE: {
                     lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
 #ifdef LV_USE_PPA_IMG
                     if(img_dsc->rotation != 0) {
                         lv_draw_ppa_img_rotate(t, img_dsc, &t->area);
-                        s_ppa_draw_imgs_rotated++;
                     } else
 #endif
                     {
                         lv_draw_ppa_img(t, img_dsc, &t->area);
-                        s_ppa_draw_imgs_accepted++;
                     }
                     break;
                 }
