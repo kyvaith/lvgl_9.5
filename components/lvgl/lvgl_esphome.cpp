@@ -27,31 +27,6 @@ void lvgl_fps_attach_v2(lv_display_t *display);
 namespace esphome::lvgl {
 static const char *const TAG = "lvgl";
 
-// Accumulated time (ms) spent waiting on synchronous panel DMA flushes.
-// Subtracted from the millis() value reported to LVGL so that lv_timer's
-// idle accounting (and therefore sysmon's CPU%) excludes flush-wait,
-// which is not actual CPU work. Kept on the same millis() base as the
-// rest of ESPHome to avoid mid-flight reference-frame mismatches.
-static volatile uint32_t s_flush_pause_ms = 0;
-
-static uint32_t lvgl_tick_cb() {
-  return millis() - s_flush_pause_ms;
-}
-
-// Last computed CPU% in loop() — published for the linker wrap below.
-static volatile uint32_t s_cpu_pct = 0;
-
-// Linker wrap (PlatformIO LDFLAG -Wl,--wrap=lv_timer_get_idle).
-// LVGL's sysmon perf widget computes `cpu = 100 - lv_timer_get_idle()`.
-// We hijack that getter so the on-screen overlay shows the CPU%
-// we calculate in loop() — which excludes DSI flush wait — instead of
-// LVGL's internal busy-time heuristic that pins it at 100.
-extern "C" uint32_t __wrap_lv_timer_get_idle(void) {
-  uint32_t cpu = s_cpu_pct;
-  if (cpu > 100) cpu = 100;
-  return 100 - cpu;
-}
-
 #ifdef USE_LVGL_PPA
 /// Dedicated PPA SRM client for display framebuffer rotation (separate from LVGL draw unit).
 static ppa_client_handle_t s_display_srm_client = nullptr;
@@ -285,10 +260,7 @@ void LvglComponent::esphome_lvgl_init() {
     }
   }
 #endif
-  // Install the flush-aware tick from the start so LVGL's internal time
-  // reference is consistent. lvgl_tick_cb() returns (millis() - flush_pause_ms)
-  // — same base as before plus a subtraction that's 0 until the first flush.
-  lv_tick_set_cb(lvgl_tick_cb);
+  lv_tick_set_cb([] { return millis(); });
   lv_update_event = static_cast<lv_event_code_t>(lv_event_register_id());
   lv_api_event = static_cast<lv_event_code_t>(lv_event_register_id());
 }
@@ -491,14 +463,10 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
-    uint32_t t0 = millis();
+    auto now = millis();
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    uint32_t dt = millis() - t0;
-    // The blit blocks waiting for DSI DMA — exclude that time from the
-    // tick LVGL sees so it doesn't count it as CPU busy.
-    s_flush_pause_ms += dt;
-    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %u ms", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (unsigned)dt);
+    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+             lv_area_get_height(area), (int) (millis() - now));
   }
   lv_display_flush_ready(disp_drv);
 }
@@ -974,7 +942,6 @@ void LvglComponent::loop() {
     if (elapsed_us >= 1000000) {
       this->cpu_pct_ = (uint32_t)((this->perf_busy_us_ * 100ULL) / elapsed_us);
       if (this->cpu_pct_ > 100) this->cpu_pct_ = 100;
-      s_cpu_pct = this->cpu_pct_;
       this->fps_ = (uint32_t)((uint64_t)this->perf_frame_count_ * 1000000ULL / elapsed_us);
       ESP_LOGD(TAG, "perf: %u fps, CPU %u%%, busy %llu us / wall %llu us",
                (unsigned)this->fps_, (unsigned)this->cpu_pct_,
