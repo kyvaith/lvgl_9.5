@@ -461,12 +461,26 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   }
 }
 
+// Accumulated time (us) spent waiting on synchronous panel DMA flushes.
+// Subtracted from the tick reported to LVGL so that lv_timer's idle
+// accounting (and therefore sysmon's CPU%) excludes flush-wait, which
+// is not actual CPU work.
+static volatile uint64_t s_flush_pause_us = 0;
+
+static uint32_t lvgl_tick_cb() {
+  return (uint32_t)((esp_timer_get_time() - s_flush_pause_us) / 1000);
+}
+
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
-    auto now = millis();
+    uint64_t t0 = esp_timer_get_time();
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (int) (millis() - now));
+    uint64_t t1 = esp_timer_get_time();
+    // The blit blocks waiting for DSI DMA — exclude that time from the
+    // tick LVGL sees so it doesn't count it as CPU busy.
+    s_flush_pause_us += (t1 - t0);
+    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %lu us", area->x1, area->y1, lv_area_get_width(area),
+             lv_area_get_height(area), (unsigned long)(t1 - t0));
   }
   lv_display_flush_ready(disp_drv);
 }
@@ -761,6 +775,11 @@ LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buf
 }
 
 void LvglComponent::setup() {
+  // Install our flush-aware tick callback so lv_timer's internal busy_time
+  // (used by sysmon to compute CPU%) doesn't count synchronous DSI flush
+  // waits as CPU work. Has to happen before any LVGL timer fires.
+  lv_tick_set_cb(lvgl_tick_cb);
+
   auto *display = this->displays_[0];
   auto rounding = this->draw_rounding;
   // cater for displays with dimensions that don't divide by the required rounding
