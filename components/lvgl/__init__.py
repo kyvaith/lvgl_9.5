@@ -310,16 +310,18 @@ async def to_code(configs):
     df.add_define("LV_USE_LIBPNG", "0")
     df.add_define("LV_USE_LIBWEBP", "0")
 
-    # LVGL OS mode:
-    #   LV_OS_FREERTOS enables LVGL's threading hooks (mutex/task helpers)
-    #   but breaks sysmon's CPU% calculation on ESPHome — it ends up
-    #   pinned at 100%. Default to LV_OS_NONE (single-threaded) which is
-    #   what the perf monitor expects and what most ESPHome users want.
-    df.add_define("LV_USE_OS", "LV_OS_NONE")
+    # Enable FreeRTOS threading for LVGL draw operations.
+    # Required by ThorVG / Lottie which render off the main LVGL task and
+    # rely on the OS abstraction's mutexes. Switching to LV_OS_NONE here
+    # makes those mutexes no-op and crashes the firmware at boot
+    # (OTA rolls back).
+    # Side effect: LVGL sysmon's CPU%% overlay reads 100%% — a known LVGL
+    # quirk with LV_OS_FREERTOS on ESPHome. Ignore the displayed CPU%%;
+    # the FPS and ms numbers are still accurate.
+    df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
 
     # Refresh period: 15 ms ≈ 66 Hz attempt rate (recommended by LVGL
-    # community for smooth perf-monitor readings; default 33 is too coarse
-    # on fast displays).
+    # community for smoother sysmon readings; doesn't force higher FPS).
     df.add_define("LV_DEF_REFR_PERIOD", "15")
 
     # LVGL 9.5: Enable blur/frosted glass support (small code, useful for shadows)
