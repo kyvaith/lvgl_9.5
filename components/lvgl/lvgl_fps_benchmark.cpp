@@ -12,9 +12,12 @@
  * reproduces the same percentile / stability-rating report.
  */
 
+#include "esphome/core/defines.h"
 #include "lvgl_fps_benchmark.h"
 
 #ifdef USE_LVGL_FPS_BENCHMARK
+
+extern "C" {
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -309,16 +312,6 @@ void lvgl_fps_attach_v2(lv_display_t *display)
     ESP_LOGI(TAG_FPS, "<<< attach() done, warmup %d ms", FPS_STARTUP_DELAY_MS);
 }
 
-#else  /* !USE_LVGL_FPS_BENCHMARK */
-
-#include "esp_log.h"
-static const char *TAG_FPS_STUB = "lvgl";
-void lvgl_fps_attach_v2(lv_display_t *display) {
-    (void)display;
-    /* If you see this log, the stub linked instead of the real impl —
-       USE_LVGL_FPS_BENCHMARK was not defined when this TU was compiled. */
-    ESP_LOGE(TAG_FPS_STUB, "STUB attach() called — real impl was NOT linked");
-}
-void lvgl_fps_benchmark_print(void) {}
+}  /* extern "C" */
 
 #endif /* USE_LVGL_FPS_BENCHMARK */
