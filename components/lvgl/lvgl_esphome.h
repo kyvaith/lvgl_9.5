@@ -253,6 +253,9 @@ class LvglComponent : public PollingComponent {
   bool buffers_configured_{false};  // Track if lv_display_set_buffers() has been called
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};  // safe to perform LVGL ops only after loop() starts
+  // Sliding 1s perf window: time spent inside lv_timer_handler() vs wall.
+  uint64_t perf_window_start_us_{0};
+  uint64_t perf_busy_us_{0};
 };
 
 class IdleTrigger : public Trigger<> {

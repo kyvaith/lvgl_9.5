@@ -923,7 +923,27 @@ void LvglComponent::loop() {
     if (this->paused_ && this->show_snow_)
       this->write_random_();
   } else {
+    // Time the LVGL handler so we can report a real CPU%% — same source
+    // as a custom label widget that uses FreeRTOS task stats would, but
+    // measured directly from how much wall time we spend in LVGL work.
+    uint64_t t0 = esp_timer_get_time();
     lv_timer_handler();
+    uint64_t t1 = esp_timer_get_time();
+    this->perf_busy_us_ += (t1 - t0);
+    uint64_t now_us = t1;
+    if (this->perf_window_start_us_ == 0)
+      this->perf_window_start_us_ = now_us;
+    uint64_t elapsed_us = now_us - this->perf_window_start_us_;
+    if (elapsed_us >= 1000000) {
+      uint32_t cpu_pct = (uint32_t)((this->perf_busy_us_ * 100ULL) / elapsed_us);
+      if (cpu_pct > 100) cpu_pct = 100;
+      ESP_LOGD(TAG, "perf: CPU %u%% (busy %llu us / wall %llu us)",
+               (unsigned)cpu_pct,
+               (unsigned long long)this->perf_busy_us_,
+               (unsigned long long)elapsed_us);
+      this->perf_busy_us_ = 0;
+      this->perf_window_start_us_ = now_us;
+    }
   }
 }
 
