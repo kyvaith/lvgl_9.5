@@ -68,7 +68,7 @@ substitutions:
 # Other settings
 # Otros ajustes
 
-  allowed_characters: " []¿?¡!#%'()+,-—_./:µ³°ªº0123456789ABCDEFGHIJKLMNÑOPQRSTUVWYZabcdefghijklmnñopqrstuvwxyzáéíóúÁÉÍÓÚäëïöü"
+  allowed_characters: " []¿?¡!#%'()+,-—_./:µ³°ªº0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZabcdefghijklmnñopqrstuvwxyzáéíóúÁÉÍÓÚäëïöüàâçèêëîïôùûÀÂÇÈÊËÎÏÔÙÛ"
 
 ################################################################################################################
 
@@ -921,7 +921,7 @@ script:
             static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
             int yr = sy; if (sm < 3) yr--;
             int dow = (yr + yr/4 - yr/100 + yr/400 + t[sm-1] + sd) % 7;
-            const char* dias[] = {"Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"};
+            const char* dias[] = {"Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"};
             char buf[35];
             sprintf(buf, "%s %02d/%02d/%02d, %02d:%02d-%02d:%02d",
               dias[dow], sd, sm, sy % 100, sh, smin, eh, emin);
@@ -1229,7 +1229,7 @@ sensor:
         - lvgl.label.update:
             id: lbl_device_printer_3d_octoprint_temp_bed
             text:
-              format: "Tª Cama %.0f %ºC"
+              format: "Plateau %.0f ºC"
               args:
                 - id(printer_3d_octoprint_temp_bed).state
 
@@ -1246,7 +1246,7 @@ sensor:
         - lvgl.label.update:
             id: lbl_device_printer_3d_octoprint_temp_hotend
             text:
-              format: "Tª Extrusor %.0f %ºC"
+              format: "Buse %.0f ºC"
               args:
                 - id(printer_3d_octoprint_temp_hotend).state
 
@@ -1330,32 +1330,32 @@ sensor:
             id: lbl_device_vacuum_cleaning_time
             text: !lambda |-
               if (isnan(x) || x <= 0) {
-                return std::string("Ninguna limpieza en curso");
+                return std::string("Aucun nettoyage en cours");
               }
               int minutes = (int)x;
               int hours = minutes / 60;
               int mins = minutes % 60;
               char buffer[40];
               if (hours > 0) {
-                snprintf(buffer, sizeof(buffer), "Limpiando %dh %02dm", hours, mins);
+                snprintf(buffer, sizeof(buffer), "Nettoyage %dh %02dm", hours, mins);
               } else {
-                snprintf(buffer, sizeof(buffer), "Limpiando %dm", minutes);
+                snprintf(buffer, sizeof(buffer), "Nettoyage %dm", minutes);
               }
               return std::string(buffer);
         - lvgl.label.update:
             id: lbl_home_vacuum_cleaning_time
             text: !lambda |-
               if (isnan(x) || x <= 0) {
-                return std::string("Ninguna limpieza en curso");
+                return std::string("Aucun nettoyage en cours");
               }
               int minutes = (int)x;
               int hours = minutes / 60;
               int mins = minutes % 60;
               char buffer[40];
               if (hours > 0) {
-                snprintf(buffer, sizeof(buffer), "Limpiando %dh %02dm", hours, mins);
+                snprintf(buffer, sizeof(buffer), "Nettoyage %dh %02dm", hours, mins);
               } else {
-                snprintf(buffer, sizeof(buffer), "Limpiando %dm", minutes);
+                snprintf(buffer, sizeof(buffer), "Nettoyage %dm", minutes);
               }
               return std::string(buffer);
 
@@ -1404,7 +1404,7 @@ switch:
 
   - platform: gpio
     id: speaker_enable
-    name: "Conférencier"
+    name: "Haut-parleur"
     icon: mdi:volume-high
     pin:
       pi4ioe5v6408: pi4ioe1
@@ -1540,7 +1540,7 @@ text_sensor:
 
               if (recv_tm.tm_year == now_tm.tm_year && recv_tm.tm_yday == now_tm.tm_yday) {
                 snprintf(buf, sizeof(buf),
-                  "Recibida hoy, a las %02d:%02d",
+                  "Reçue aujourd'hui à %02d:%02d",
                   recv_tm.tm_hour, recv_tm.tm_min);
               } else {
                 time_t yesterday_ts = now.timestamp - 86400;
@@ -1548,11 +1548,11 @@ text_sensor:
 
                 if (recv_tm.tm_year == yesterday_tm.tm_year && recv_tm.tm_yday == yesterday_tm.tm_yday) {
                   snprintf(buf, sizeof(buf),
-                    "Recibida ayer, a las %02d:%02d",
+                    "Reçue hier à %02d:%02d",
                     recv_tm.tm_hour, recv_tm.tm_min);
                 } else {
                   snprintf(buf, sizeof(buf),
-                    "Recibida el %s, a las %02d:%02d",
+                    "Reçue %s à %02d:%02d",
                     dias[recv_tm.tm_wday],
                     recv_tm.tm_hour,
                     recv_tm.tm_min);
@@ -1664,9 +1664,9 @@ text_sensor:
             id: lbl_menu_light_ceiling_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumée";
               } else {
-                return "Supprimé";
+                return "Éteinte";
               }
         - if:
             condition:
@@ -1690,9 +1690,9 @@ text_sensor:
             id: lbl_menu_light_bar_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumé";
               } else {
-                return "Supprimé";
+                return "Éteint";
               }
         - if:
             condition:
@@ -1718,8 +1718,8 @@ text_sensor:
             id: lbl_menu_cover_status
             text: !lambda |-
               if (id(device_cover1).state == "closed" && id(device_cover2).state == "closed")
-                return std::string("Fermé");
-              return std::string("Ouvrir");
+                return std::string("Fermés");
+              return std::string("Ouverts");
 
   - platform: homeassistant
     id: device_cover2
@@ -1731,8 +1731,8 @@ text_sensor:
             id: lbl_menu_cover_status
             text: !lambda |-
               if (id(device_cover1).state == "closed" && id(device_cover2).state == "closed")
-                return std::string("Fermé");
-              return std::string("Ouvrir");
+                return std::string("Fermés");
+              return std::string("Ouverts");
 
 
   ## FAN
@@ -1755,9 +1755,9 @@ text_sensor:
             id: lbl_menu_fan_ceiling_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumé";
               } else {
-                return "Désactivé";
+                return "Éteint";
               }
         - if:
             condition:
@@ -1792,9 +1792,9 @@ text_sensor:
             id: lbl_menu_climate_status
             text: !lambda |-
               if (x == "off") {
-                return "Supprimé";
+                return "Éteint";
               } else {
-                return "Sur";
+                return "Allumé";
               }
         - if:
             condition:
@@ -1820,9 +1820,9 @@ text_sensor:
             id: lbl_menu_dehumidifier_status
             text: !lambda |-
               if (x == "off") {
-                return "Désactivé";
+                return "Éteint";
               } else {
-                return "Sur";
+                return "Allumé";
               }
         - if:
             condition:
@@ -1856,9 +1856,9 @@ text_sensor:
             id: btn_printer_3d_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumée";
               } else {
-                return "Supprimé";
+                return "Éteinte";
               }
         - if:
             condition:
@@ -1875,9 +1875,9 @@ text_sensor:
             id: lbl_menu_printer_3d_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumée";
               } else {
-                return "Supprimé";
+                return "Éteinte";
               }
         - if:
             condition:
@@ -1922,7 +1922,7 @@ text_sensor:
             id: lbl_device_printer_3d_estimated_time
             text: !lambda |-
               std::string raw = id(device_printer_3d_octoprint_finish).state;
-              if (raw.empty() || raw == "unknown" || raw == "unavailable") { return std::string("Impression en cours"); }
+              if (raw.empty() || raw == "unknown" || raw == "unavailable") { return std::string("Aucune impression en cours"); }
               int year, month, day, hour, minute, second;
               sscanf(raw.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second);
               int days_in_month[] = {31,28,31,30,31,30,31,31,30,31,30,31};
@@ -1935,18 +1935,18 @@ text_sensor:
               time_t finish_ts = days * 86400L + hour * 3600L + minute * 60L + second;
               time_t now_ts = id(esptime).now().timestamp;
               long remaining = (long)finish_ts - (long)now_ts;
-              if (remaining <= 0) { return std::string("En conclusion..."); }
+              if (remaining <= 0) { return std::string("Finalisation..."); }
               int hours = remaining / 3600;
               int minutes = (remaining % 3600) / 60;
               char buffer[30];
-              if (hours > 0) { snprintf(buffer, sizeof(buffer), "Terminé en %dh %02dm", hours, minutes); } 
-              else { snprintf(buffer, sizeof(buffer), "Terminé en %dm", minutes); }
+              if (hours > 0) { snprintf(buffer, sizeof(buffer), "Termine dans %dh %02dm", hours, minutes); } 
+              else { snprintf(buffer, sizeof(buffer), "Termine dans %dm", minutes); }
               return std::string(buffer);
         - lvgl.label.update:
             id: lbl_home_printer_3d_estimated_time
             text: !lambda |-
               std::string raw = id(device_printer_3d_octoprint_finish).state;
-              if (raw.empty() || raw == "unknown" || raw == "unavailable") { return std::string("Impression en cours"); }
+              if (raw.empty() || raw == "unknown" || raw == "unavailable") { return std::string("Aucune impression en cours"); }
               int year, month, day, hour, minute, second;
               sscanf(raw.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second);
               int days_in_month[] = {31,28,31,30,31,30,31,31,30,31,30,31};
@@ -1959,12 +1959,12 @@ text_sensor:
               time_t finish_ts = days * 86400L + hour * 3600L + minute * 60L + second;
               time_t now_ts = id(esptime).now().timestamp;
               long remaining = (long)finish_ts - (long)now_ts;
-              if (remaining <= 0) { return std::string("En conclusion..."); }
+              if (remaining <= 0) { return std::string("Finalisation..."); }
               int hours = remaining / 3600;
               int minutes = (remaining % 3600) / 60;
               char buffer[30];
-              if (hours > 0) { snprintf(buffer, sizeof(buffer), "Terminé en %dh %02dm", hours, minutes); } 
-              else { snprintf(buffer, sizeof(buffer), "Terminé en %dm", minutes); }
+              if (hours > 0) { snprintf(buffer, sizeof(buffer), "Termine dans %dh %02dm", hours, minutes); } 
+              else { snprintf(buffer, sizeof(buffer), "Termine dans %dm", minutes); }
               return std::string(buffer);
 
   - platform: homeassistant
@@ -2005,9 +2005,9 @@ text_sensor:
             id: lbl_menu_printer_status
             text: !lambda |-
               if (x == "on") {
-                return "Sur";
+                return "Allumée";
               } else {
-                return "Supprimé";
+                return "Éteinte";
               }
         - if:
             condition:
@@ -2035,9 +2035,9 @@ text_sensor:
               if (x == "cleaning") {
                 return "Nettoyage";
               } else if (x == "paused") {
-                return "En attendant";
+                return "En pause";
               } else {
-                return "En la base";
+                return "À la base";
               }
         - lvgl.widget.update:
             id: btn_vacuum_toggle
@@ -2079,11 +2079,11 @@ text_sensor:
             id: lbl_menu_vacuum_status
             text: !lambda |-
               if (x == "cleaning") {
-                return "Limpiando";
+                return "Nettoyage";
               } else if (x == "paused") {
-                return "En attendant";
+                return "En pause";
               } else {
-                return "En la base";
+                return "À la base";
               }
         - lvgl.widget.update:
             id: lbl_menu_vacuum_button
@@ -2131,14 +2131,14 @@ text_sensor:
               if (x.empty() || x == "unknown" || x == "unavailable") {
                 return std::string("Je suis perdu");
               }
-              return std::string("Ahora en ") + x;
+              return std::string("Actuellement dans ") + x;
         - lvgl.label.update:
             id: lbl_home_vacuum_current_room
             text: !lambda |-
               if (x.empty() || x == "unknown" || x == "unavailable") {
                 return std::string("Je suis perdu");
               }
-              return std::string("Ahora en ") + x;
+              return std::string("Actuellement dans ") + x;
 
   - platform: homeassistant
     id: device_vacuum_last_clean
@@ -2184,7 +2184,7 @@ text_sensor:
               char buffer[40];
               if (hours >= 24) {
                 int days_ago = hours / 24;
-                snprintf(buffer, sizeof(buffer), "Dernier nettoyage il y a %d día%s", days_ago, days_ago > 1 ? "s" : "");
+                snprintf(buffer, sizeof(buffer), "Dernier nettoyage il y a %d jour%s", days_ago, days_ago > 1 ? "s" : "");
               } else if (hours > 0) {
                 snprintf(buffer, sizeof(buffer), "Dernier nettoyage il y a %dh %02dm", hours, minutes);
               } else {
@@ -2322,7 +2322,7 @@ voice_assistant:
         text: ""
     - lvgl.label.update:
         id: lbl_assist_awake
-        text: "Te escucho..."
+        text: "J'écoute..."
     - lvgl.page.show: page_home
   on_client_connected:
     - micro_wake_word.start:
@@ -2969,7 +2969,7 @@ lvgl:
               styles: progress_bar_label_estimated_time
               x: -30
               y: 10
-              text: "Ninguna impresión en curso"
+              text: "Aucune impression en cours"
 
       ## VACUUM CLEANING
 
@@ -3026,7 +3026,7 @@ lvgl:
               styles: progress_bar_label_estimated_time
               x: -30
               y: 10
-              text: "Ninguna limpieza en curso"
+              text: "Aucun nettoyage en cours"
 
       ## BOTTOM BAR (Quick Access Devices)
       ## BARRA INFERIOR (Acceso Rápido Dispositivos)
@@ -3149,7 +3149,7 @@ lvgl:
                   - label:
                       id: lbl_menu_light_ceiling_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3192,7 +3192,7 @@ lvgl:
                   - label:
                       id: lbl_menu_light_bar_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3238,7 +3238,7 @@ lvgl:
                   - label:
                       id: lbl_menu_climate_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3257,12 +3257,12 @@ lvgl:
                 widgets:
                   - label:
                       styles: style_button_text
-                      text: "Deshumidif."
+                      text: "Déshumidif."
                       y: -20
                   - label:
                       id: lbl_menu_dehumidifier_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3286,7 +3286,7 @@ lvgl:
                   - label:
                       id: lbl_menu_printer_3d_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3306,7 +3306,7 @@ lvgl:
                   - label:
                       id: lbl_menu_vacuum_status
                       styles: style_button_status
-                      text: "En la base"
+                      text: "À la base"
                       y: 20
                 on_press:
                   then:
@@ -3326,7 +3326,7 @@ lvgl:
                   - label:
                       id: lbl_menu_printer_status
                       styles: style_button_status
-                      text: "Supprimé"
+                      text: "Éteint"
                       y: 20
                 on_press:
                   then:
@@ -3471,7 +3471,7 @@ lvgl:
           id: lbl_device_printer_3d_octoprint_temp_bed
           x: -120
           y: 90
-          text: "Tª Cama 0ºC"
+          text: "Plateau 0 ºC"
           text_color: ${text_color_secondary}
       - image:
           src: icon_3dprinter_bed
@@ -3486,7 +3486,7 @@ lvgl:
           id: lbl_device_printer_3d_octoprint_temp_hotend
           x: -120
           y: 140
-          text: "Tª Extrusor 0ºC"
+          text: "Buse 0 ºC"
           text_color: ${text_color_secondary}
       - image:
           src: icon_3dprinter_hotend
@@ -3516,7 +3516,7 @@ lvgl:
                 styles: style_button_status
                 id: btn_printer_3d_status
                 align: center
-                text: "Supprimé"
+                text: "Éteinte"
                 y: 20
           on_press:
             - homeassistant.action:
@@ -3601,7 +3601,7 @@ lvgl:
           styles: progress_bar_label_estimated_time
           x: -100
           y: 112
-          text: "Impression en cours"
+          text: "Aucune impression en cours"
 
       - label:
           styles: device_status_bottom
@@ -3661,7 +3661,7 @@ lvgl:
           id: lbl_device_vacuum_error
           x: -120
           y: 140
-          text: "Error robot"
+          text: "Erreur du robot"
           text_color: ${text_color_secondary}
       - image:
           id: icon_vacuum_error_state
@@ -3692,7 +3692,7 @@ lvgl:
                 styles: style_button_status
                 id: btn_vacuum_status
                 align: center
-                text: "En la base"
+                text: "À la base"
                 y: 20
 
       - obj:
@@ -3877,7 +3877,7 @@ lvgl:
                   align: BOTTOM_RIGHT
                   pad_right: 80
                   pad_bottom: 10
-                  text: "Éliminer"
+                  text: "Fermer"
                   text_font: font_device_name
                   text_color: 0xffffff
                   text_opa: 80%
