@@ -1493,15 +1493,20 @@ text_sensor:
         - lvgl.label.update:
             id: lbl_room_pm25
             text: !lambda |-
-              if (x == "poor") return "KO";  
-              return "OK";  
+              float val = atof(x.c_str());
+              if (val > 35.0) return "KO";
+              return "OK";
             text_color: !lambda |-
-              if (x == "poor") return lv_color_hex(0xe65476);
-              return lv_color_hex(0x626262);  
+              float val = atof(x.c_str());
+              if (val > 35.0) return lv_color_hex(0xe65476);
+              if (val > 15.0) return lv_color_hex(0xe0a020);
+              return lv_color_hex(0x626262);
         - lvgl.label.update:
             id: pm25_icon
             text_color: !lambda |-
-              if (x == "poor") return lv_color_hex(0xe65476);
+              float val = atof(x.c_str());
+              if (val > 35.0) return lv_color_hex(0xe65476);
+              if (val > 15.0) return lv_color_hex(0xe0a020);
               return lv_color_hex(0x626262);  
 
   ## Notifications
