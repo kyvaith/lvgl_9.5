@@ -266,8 +266,8 @@ storage:
     root_path: "/sdcard" 
     sd_images:
 
-      - id: peaceful
-        file_path: "/jpg/peaceful.jpg"
+      - id: sanctuary
+        file_path: "/img/sanctuary.jpg"
         resize: 1280x720
         format: rgb565
         byte_order: little_endian  
@@ -1427,7 +1427,25 @@ switch:
     pin:
       pi4ioe5v6408: pi4ioe1
       number: 2
+  - platform: gpio
+    id: interrupt_pin_toushsreen
+    name: "interrupt_pin_toushscreen"
+    pin:
+      inverted: true
+      number: GPIO23
+    restore_mode: ALWAYS_ON  
 
+
+  - platform: gpio
+    id: cam_rst
+    name: "Camera Reset"
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 6
+    restore_mode: ALWAYS_ON
+    on_turn_on:
+      - delay: 100ms
+      - logger.log: "Camera reset activated"       
 text_sensor:
 
   ## Weather
@@ -2244,26 +2262,23 @@ time:
 
 touchscreen:
   - platform: gt911
-    interrupt_pin: GPIO23
-    update_interval: never
     reset_pin:
       pi4ioe5v6408: pi4ioe1
       number: 5
     calibration:
       x_min: 0
-      x_max: 720
+      y_max: 720
       y_min: 0
-      y_max: 1280
-    id: touch
-    on_release:
-      then:
-        - if:
-            condition: lvgl.is_paused
-            then:
-              - lvgl.page.show: page_home
-              - light.turn_on: backlight
-              - lvgl.resume:
-              - lvgl.widget.redraw:
+      x_max: 1280
+    id: touch_screen
+    on_touch:
+      - lambda: |-
+          ESP_LOGD("touchscreen", "Touch detected at (%d, %d)", touch.x, touch.y);
+      - light.turn_on: backlight          
+    transform:
+      swap_xy: true
+      mirror_x: true
+      mirror_y: false
 
 voice_assistant:
   id: va
@@ -2335,7 +2350,6 @@ voice_assistant:
 
 display:
   - platform: mipi_dsi
-    id: main_display
     dimensions:
       height: 1280
       width: 720
@@ -2344,8 +2358,6 @@ display:
       pi4ioe5v6408: pi4ioe1
       number: 4
     color_order: rgb
-    update_interval: never
-    auto_clear_enabled: false
     rotation: 270
   
 
@@ -2561,14 +2573,14 @@ lvgl:
           then:
             - lvgl.image.update:
                 id: update_wallpaper
-                src: peaceful
+                src: sanctuary
       widgets:
 
       ## LEFT SIDE (Date, time and device info)
       ## LADO IZQUIERDO (Fecha, hora e información del dispositivo)
       - image:
           id: update_wallpaper
-          src: peaceful
+          src: sanctuary
           width: 1280
           height: 720      
       - label:
