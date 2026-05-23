@@ -2350,9 +2350,13 @@ display:
   
 
 lvgl:
+  use_ppa: true  
   color_depth: 16
-  buffer_size: 50%
+  buffer_size: 100%
   byte_order: little_endian
+  fps_benchmark: true
+  perf_monitor: true
+  color_depth: 16 
   #rotation: 270
   on_idle:
     - timeout: !lambda |-
