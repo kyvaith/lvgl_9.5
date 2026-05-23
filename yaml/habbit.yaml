@@ -711,8 +711,8 @@ interval:
             if (start.empty() || end_s.empty())
               return 0;
             int sy, sm, sd, sh, smin, ss, ey, em, ed, eh, emin, es;
-            sscanf(start.c_str(), "%d-%d-%d %d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss);
-            sscanf(end_s.c_str(), "%d-%d-%d %d:%d:%d", &ey, &em, &ed, &eh, &emin, &es);
+            sscanf(start.c_str(), "%d-%d-%dT%d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss);
+            sscanf(end_s.c_str(), "%d-%d-%dT%d:%d:%d", &ey, &em, &ed, &eh, &emin, &es);
             auto now = id(esptime).now();
             if (!now.is_valid()) return 0;
             int now_mins = now.hour * 60 + now.minute;
@@ -869,7 +869,7 @@ script:
             if (start.empty()) return lv_color_hex(0xFFFFFF);
 
             int sy, sm, sd, sh, smin, ss;
-            if (sscanf(start.c_str(), "%d-%d-%d %d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
+            if (sscanf(start.c_str(), "%d-%d-%dT%d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
               return lv_color_hex(0xFFFFFF);
             }
 
@@ -895,7 +895,7 @@ script:
             if (start.empty()) return lv_color_hex(0xFFFFFF);
 
             int sy, sm, sd, sh, smin, ss;
-            if (sscanf(start.c_str(), "%d-%d-%d %d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
+            if (sscanf(start.c_str(), "%d-%d-%dT%d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
               return lv_color_hex(0xFFFFFF);
             }
 
@@ -916,8 +916,8 @@ script:
             std::string end_s = id(calendar_event_end).state;
             if (start.empty() || end_s.empty()) return std::string("Aucun événement");
             int sy, sm, sd, sh, smin, ss, ey, em, ed, eh, emin, es;
-            sscanf(start.c_str(), "%d-%d-%d %d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss);
-            sscanf(end_s.c_str(), "%d-%d-%d %d:%d:%d", &ey, &em, &ed, &eh, &emin, &es);
+            sscanf(start.c_str(), "%d-%d-%dT%d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss);
+            sscanf(end_s.c_str(), "%d-%d-%dT%d:%d:%d", &ey, &em, &ed, &eh, &emin, &es);
             static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
             int yr = sy; if (sm < 3) yr--;
             int dow = (yr + yr/4 - yr/100 + yr/400 + t[sm-1] + sd) % 7;
@@ -933,7 +933,7 @@ script:
             if (start.empty()) return lv_color_hex(0xFFFFFF);
 
             int sy, sm, sd, sh, smin, ss;
-            if (sscanf(start.c_str(), "%d-%d-%d %d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
+            if (sscanf(start.c_str(), "%d-%d-%dT%d:%d:%d", &sy, &sm, &sd, &sh, &smin, &ss) != 6) {
               return lv_color_hex(0xFFFFFF);
             }
 
