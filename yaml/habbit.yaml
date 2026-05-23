@@ -2356,7 +2356,6 @@ lvgl:
   byte_order: little_endian
   fps_benchmark: true
   perf_monitor: true
-  color_depth: 16 
   #rotation: 270
   on_idle:
     - timeout: !lambda |-
