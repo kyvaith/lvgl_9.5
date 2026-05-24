@@ -122,9 +122,14 @@ static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_ar
     uintptr_t aligned_addr = addr & ~(align - 1);
     size_t total = LVGL_PORT_PPA_ALIGN_UP(bytes + (addr - aligned_addr), align);
 
-    /* LVGL PR #10107: tolerate unaligned regions (kernel handles partial
-     * leading/trailing cache lines instead of rejecting the call). */
-    esp_cache_msync((void *)aligned_addr, total, flag | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    /* Address and size are already aligned above (lines 122-123).
+     * M2C direction does not allow ESP_CACHE_MSYNC_FLAG_UNALIGNED,
+     * so only add it for C2M (flush) direction. */
+    int sync_flag = flag;
+    if (!(flag & ESP_CACHE_MSYNC_FLAG_DIR_M2C)) {
+        sync_flag |= ESP_CACHE_MSYNC_FLAG_UNALIGNED;
+    }
+    esp_cache_msync((void *)aligned_addr, total, sync_flag);
 }
 
 static void ppa_cache_invalidate(const lv_area_t *area, const lv_area_t *buf_area, lv_color_t *buf)
