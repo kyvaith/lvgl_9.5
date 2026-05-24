@@ -734,20 +734,23 @@ media_player:
   - platform: speaker
     name: "Habbit Desk PRO"
     id: speaker_player
+    media_pipeline:
+      speaker: tab5_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
     announcement_pipeline:
       speaker: tab5_speaker
       format: FLAC
       sample_rate: 48000
       num_channels: 1
     on_announcement:
-      # Stop the wake word (mWW or VA) if the mic is capturing
       - if:
           condition:
             - microphone.is_capturing:
           then:
             - micro_wake_word.stop:
     on_idle:
-      # Since VA isn't running, this is the end of user-intiated media playback. Restart the wake word.
       - if:
           condition:
             not:
