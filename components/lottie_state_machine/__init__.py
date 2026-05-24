@@ -1,25 +1,7 @@
 """
 Lottie State Machine for ESPHome LVGL.
 
-Exposes Lottie animation controls in Home Assistant:
-  - switch: Play / Pause
-  - select: State selection (from YAML-defined states)
-  - number: Playback speed
-  - number: Go to frame
-  - sensor: Current frame
-
-Usage:
-    lottie_state_machine:
-      id: lottie_sm
-      lottie_id: my_lottie
-      name: "Robot"
-      states:
-        idle:
-          segment: [0, 160]
-          loop: true
-        active:
-          segment: [161, 320]
-          loop: false
+Exposes Lottie animation controls in Home Assistant.
 """
 
 import esphome.automation as automation
@@ -43,11 +25,11 @@ CONF_STATES = "states"
 CONF_SEGMENT = "segment"
 CONF_LOOP = "loop"
 CONF_INITIAL_STATE = "initial_state"
-CONF_PLAY_SWITCH = "play_switch_id"
-CONF_STATE_SELECT = "state_select_id"
-CONF_SPEED_NUMBER = "speed_number_id"
-CONF_FRAME_NUMBER = "frame_number_id"
-CONF_FRAME_SENSOR = "frame_sensor_id"
+CONF_PLAY_SWITCH = "play_switch"
+CONF_STATE_SELECT = "state_select"
+CONF_SPEED_NUMBER = "speed_number"
+CONF_FRAME_NUMBER = "frame_number"
+CONF_FRAME_SENSOR = "frame_sensor"
 
 lottie_sm_ns = cg.esphome_ns.namespace("lottie_state_machine")
 LottieStateMachineComponent = lottie_sm_ns.class_(
@@ -79,11 +61,21 @@ CONFIG_SCHEMA = cv.Schema(
             {cv.string: STATE_SCHEMA}
         ),
         cv.Optional(CONF_INITIAL_STATE): cv.string,
-        cv.GenerateID(CONF_PLAY_SWITCH): cv.declare_id(LottiePlaySwitch),
-        cv.GenerateID(CONF_STATE_SELECT): cv.declare_id(LottieStateSelect),
-        cv.GenerateID(CONF_SPEED_NUMBER): cv.declare_id(LottieSpeedNumber),
-        cv.GenerateID(CONF_FRAME_NUMBER): cv.declare_id(LottieFrameNumber),
-        cv.GenerateID(CONF_FRAME_SENSOR): cv.declare_id(LottieFrameSensor),
+        cv.Optional(CONF_PLAY_SWITCH): switch.switch_schema(
+            LottiePlaySwitch, icon="mdi:play-pause"
+        ),
+        cv.Optional(CONF_STATE_SELECT): select.select_schema(
+            LottieStateSelect, icon="mdi:state-machine"
+        ),
+        cv.Optional(CONF_SPEED_NUMBER): number.number_schema(
+            LottieSpeedNumber, icon="mdi:speedometer"
+        ),
+        cv.Optional(CONF_FRAME_NUMBER): number.number_schema(
+            LottieFrameNumber, icon="mdi:filmstrip"
+        ),
+        cv.Optional(CONF_FRAME_SENSOR): sensor.sensor_schema(
+            LottieFrameSensor, icon="mdi:animation-play", accuracy_decimals=0
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -95,12 +87,43 @@ SET_STATE_SCHEMA = cv.Schema(
 )
 
 
+def _inject_defaults(config, name):
+    """Inject default names and auto-generate sub-entity configs if missing."""
+    if CONF_PLAY_SWITCH not in config:
+        config[CONF_PLAY_SWITCH] = {"name": f"{name} Play"}
+    elif "name" not in config[CONF_PLAY_SWITCH]:
+        config[CONF_PLAY_SWITCH]["name"] = f"{name} Play"
+
+    if CONF_STATE_SELECT not in config:
+        config[CONF_STATE_SELECT] = {"name": f"{name} State"}
+    elif "name" not in config[CONF_STATE_SELECT]:
+        config[CONF_STATE_SELECT]["name"] = f"{name} State"
+
+    if CONF_SPEED_NUMBER not in config:
+        config[CONF_SPEED_NUMBER] = {"name": f"{name} Speed"}
+    elif "name" not in config[CONF_SPEED_NUMBER]:
+        config[CONF_SPEED_NUMBER]["name"] = f"{name} Speed"
+
+    if CONF_FRAME_NUMBER not in config:
+        config[CONF_FRAME_NUMBER] = {"name": f"{name} Frame"}
+    elif "name" not in config[CONF_FRAME_NUMBER]:
+        config[CONF_FRAME_NUMBER]["name"] = f"{name} Frame"
+
+    if CONF_FRAME_SENSOR not in config:
+        config[CONF_FRAME_SENSOR] = {"name": f"{name} Current Frame"}
+    elif "name" not in config[CONF_FRAME_SENSOR]:
+        config[CONF_FRAME_SENSOR]["name"] = f"{name} Current Frame"
+
+    return config
+
+
 async def to_code(config):
+    name = config[CONF_NAME]
+    config = _inject_defaults(config, name)
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_lottie_id(config[CONF_LOTTIE_ID]))
-
-    name = config[CONF_NAME]
 
     # Register states
     states = config.get(CONF_STATES, {})
@@ -117,64 +140,37 @@ async def to_code(config):
         cg.add(var.set_initial_state(state_names[0]))
 
     # Play/Pause Switch
-    play_sw = cg.new_Pvariable(config[CONF_PLAY_SWITCH])
-    await switch.register_switch(play_sw, {
-        "id": config[CONF_PLAY_SWITCH],
-        "name": f"{name} Play",
-        "icon": "mdi:play-pause",
-    })
+    play_conf = config[CONF_PLAY_SWITCH]
+    play_sw = await switch.new_switch(play_conf)
     cg.add(var.set_play_switch(play_sw))
     cg.add(play_sw.set_parent(var))
 
     # State Select
     if state_names:
-        state_sel = cg.new_Pvariable(config[CONF_STATE_SELECT])
-        await select.register_select(state_sel, {
-            "id": config[CONF_STATE_SELECT],
-            "name": f"{name} State",
-            "icon": "mdi:state-machine",
-            "options": state_names,
-        })
+        sel_conf = config[CONF_STATE_SELECT]
+        state_sel = await select.new_select(sel_conf, options=state_names)
         cg.add(var.set_state_select(state_sel))
         cg.add(state_sel.set_parent(var))
 
     # Speed Number
-    speed_num = cg.new_Pvariable(config[CONF_SPEED_NUMBER])
-    await number.register_number(speed_num, {
-        "id": config[CONF_SPEED_NUMBER],
-        "name": f"{name} Speed",
-        "icon": "mdi:speedometer",
-        "min_value": 0.1,
-        "max_value": 3.0,
-        "step": 0.1,
-        "entity_category": ENTITY_CATEGORY_CONFIG,
-    })
+    speed_conf = config[CONF_SPEED_NUMBER]
+    speed_num = await number.new_number(
+        speed_conf, min_value=0.1, max_value=3.0, step=0.1
+    )
     cg.add(var.set_speed_number(speed_num))
     cg.add(speed_num.set_parent(var))
 
     # Frame Number
-    frame_num = cg.new_Pvariable(config[CONF_FRAME_NUMBER])
-    await number.register_number(frame_num, {
-        "id": config[CONF_FRAME_NUMBER],
-        "name": f"{name} Frame",
-        "icon": "mdi:filmstrip",
-        "min_value": 0,
-        "max_value": 10000,
-        "step": 1,
-        "entity_category": ENTITY_CATEGORY_CONFIG,
-    })
+    frame_conf = config[CONF_FRAME_NUMBER]
+    frame_num = await number.new_number(
+        frame_conf, min_value=0, max_value=10000, step=1
+    )
     cg.add(var.set_frame_number(frame_num))
     cg.add(frame_num.set_parent(var))
 
     # Frame Sensor
-    frame_sens = cg.new_Pvariable(config[CONF_FRAME_SENSOR])
-    await sensor.register_sensor(frame_sens, {
-        "id": config[CONF_FRAME_SENSOR],
-        "name": f"{name} Current Frame",
-        "icon": "mdi:animation-play",
-        "accuracy_decimals": 0,
-        "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
-    })
+    sens_conf = config[CONF_FRAME_SENSOR]
+    frame_sens = await sensor.new_sensor(sens_conf)
     cg.add(var.set_frame_sensor(frame_sens))
 
 
