@@ -1594,11 +1594,17 @@ text_sensor:
                   id: animation_widget
                   src: img_animation_alert
               - lvgl.widget.show: alert_icon
+              #- lottie_state_machine.set_state:
+              #    id: robot_sm
+              #    state: alert
             else:
               - lvgl.image.update:
                   id: animation_widget
                   src: img_animation_active
               - lvgl.widget.hide: alert_icon
+              #- lottie_state_machine.set_state:
+              #    id: robot_sm
+              #    state: idle
         - delay: 1s
         - light.turn_on: backlight
         - lvgl.resume:
