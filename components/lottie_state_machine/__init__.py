@@ -208,6 +208,7 @@ async def to_code(config):
     "lottie_state_machine.set_state",
     LottieSetStateAction,
     SET_STATE_SCHEMA,
+    synchronous=True,
 )
 async def lottie_set_state_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
