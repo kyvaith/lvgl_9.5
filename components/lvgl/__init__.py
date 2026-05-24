@@ -555,6 +555,9 @@ async def to_code(configs):
         df.add_define("LV_USE_THORVG_INTERNAL", "0")
         df.add_define("LV_USE_SVG", "0")
         df.add_define("LV_USE_LOTTIE", "0")
+        # lv_lottie.h checks LV_USE_CANVAS even when LV_USE_LOTTIE=0
+        # because lvgl.h includes all widget headers unconditionally.
+        df.add_define("LV_USE_CANVAS", "1")
         # Smaller stack when ThorVG is not used
         df.add_define("LV_DRAW_THREAD_STACK_SIZE", "(8 * 1024)")
         df.LOGGER.info(
