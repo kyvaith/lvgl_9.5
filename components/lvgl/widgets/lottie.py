@@ -245,7 +245,12 @@ async def lottie_start(config, action_id, template_arg, args):
     widget = await get_widgets(config)
 
     async def do_start(w: Widget):
-        lv.anim_start(lv.lottie_get_anim(w.obj))
+        from ..lvcode import lv_add
+        lv_add(cg.RawStatement(f"""
+    {{
+        auto *ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});
+        if (ctx) esphome::lvgl::lottie_play(ctx);
+    }}"""))
 
     return await action_to_code(widget, do_start, action_id, template_arg, args)
 
@@ -266,7 +271,12 @@ async def lottie_stop(config, action_id, template_arg, args):
     widget = await get_widgets(config)
 
     async def do_stop(w: Widget):
-        lv.anim_delete(w.obj, literal("NULL"))
+        from ..lvcode import lv_add
+        lv_add(cg.RawStatement(f"""
+    {{
+        auto *ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});
+        if (ctx) esphome::lvgl::lottie_stop(ctx);
+    }}"""))
 
     return await action_to_code(widget, do_stop, action_id, template_arg, args)
 
@@ -287,6 +297,37 @@ async def lottie_pause(config, action_id, template_arg, args):
     widget = await get_widgets(config)
 
     async def do_pause(w: Widget):
-        lv.anim_delete(w.obj, literal("NULL"))
+        from ..lvcode import lv_add
+        lv_add(cg.RawStatement(f"""
+    {{
+        auto *ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});
+        if (ctx) esphome::lvgl::lottie_pause(ctx);
+    }}"""))
 
     return await action_to_code(widget, do_pause, action_id, template_arg, args)
+
+
+@automation.register_action(
+    "lvgl.lottie.restart",
+    ObjUpdateAction,
+    cv.maybe_simple_value(
+        {
+            cv.Required(CONF_ID): cv.use_id(lv_lottie_t),
+        },
+        key=CONF_ID,
+    ),
+    synchronous=True,
+)
+async def lottie_restart(config, action_id, template_arg, args):
+    """Restart the Lottie animation from frame 0."""
+    widget = await get_widgets(config)
+
+    async def do_restart(w: Widget):
+        from ..lvcode import lv_add
+        lv_add(cg.RawStatement(f"""
+    {{
+        auto *ctx = (esphome::lvgl::LottieContext *)lv_obj_get_user_data({w.obj});
+        if (ctx) esphome::lvgl::lottie_restart(ctx);
+    }}"""))
+
+    return await action_to_code(widget, do_restart, action_id, template_arg, args)
