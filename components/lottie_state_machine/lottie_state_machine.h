@@ -148,7 +148,7 @@ template<typename... Ts> class LottieSetStateAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(std::string, state)
 
-  void play(Ts... x) override {
+  void play(const Ts &...x) override {
     this->parent_->set_state(this->state_.value(x...));
   }
 
