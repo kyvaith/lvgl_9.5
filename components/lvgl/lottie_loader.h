@@ -303,20 +303,8 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
     // show/hide from user scripts (e.g. weather widget selection).
     ctx->runtime_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
-    // Signal the render task to stop – it will suspend itself.
-    // Do NOT call vTaskDelete here: the task may hold lv_lock(),
-    // causing a deadlock that triggers the task watchdog.
+    // Signal the render task to stop – it will suspend itself on next frame.
     ctx->stop_requested = true;
-
-    // Give the task time to see the flag and suspend (max ~50 ms)
-    if (ctx->task_handle) {
-        for (int i = 0; i < 10; i++) {
-            if (eTaskGetState(ctx->task_handle) == eSuspended) break;
-            lv_unlock();
-            vTaskDelay(pdMS_TO_TICKS(5));
-            lv_lock();
-        }
-    }
 
     // Hide widget so LVGL won't try to draw the image during transition
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
@@ -327,8 +315,12 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
 inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
 
-    // Now safe to delete the task and free – screen is no longer visible
+    // Wait for the task to suspend itself (it checks stop_requested each frame)
     if (ctx->task_handle) {
+        for (int i = 0; i < 50; i++) {
+            if (eTaskGetState(ctx->task_handle) == eSuspended) break;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
         vTaskDelete(ctx->task_handle);
         ctx->task_handle = nullptr;
     }
