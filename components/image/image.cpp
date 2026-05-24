@@ -116,7 +116,8 @@ lv_image_dsc_t *Image::get_lv_image_dsc() {
     this->dsc_.data_size = this->get_width_stride() * this->get_height();
     switch (this->get_type()) {
       case IMAGE_TYPE_BINARY:
-        this->dsc_.header.cf = LV_COLOR_FORMAT_I1;
+        this->dsc_.header.cf =
+            this->transparency_ == TRANSPARENCY_CHROMA_KEY ? LV_COLOR_FORMAT_A1 : LV_COLOR_FORMAT_I1;
         break;
 
       case IMAGE_TYPE_GRAYSCALE:

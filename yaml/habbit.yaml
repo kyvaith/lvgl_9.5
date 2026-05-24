@@ -558,84 +558,103 @@ image:
   - file: mdi:calendar
     id: icon_calendar_mini
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:check-bold
     id: icon_check
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:alert-decagram-outline
     id: icon_notification
     resize: 400x400
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   - file: mdi:microphone
     id: icon_assist_active
     resize: 400x400
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:timer-sand
     id: icon_assist_thinking
     resize: 400x400
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:check-bold
     id: icon_assist_success
     resize: 400x400
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   - file: mdi:music
     id: icon_music_mini
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:play-pause
     id: icon_music_toggle
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:skip-previous
     id: icon_music_previous
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:skip-next
     id: icon_music_next
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   - file: mdi:youtube
     id: icon_youtube_mini
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   - file: mdi:robot-vacuum
     id: icon_vacuum
     resize: 110x110
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:robot-vacuum
     id: icon_vacuum_mini
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:water
     id: icon_vacuum_water
     resize: 40x40
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:robot-vacuum-alert
     id: icon_vacuum_error
     resize: 40x40
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   - file: mdi:printer-3d-nozzle
     id: icon_3dprinter
     resize: 100x100
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:printer-3d-nozzle
     id: icon_3dprinter_mini
     resize: 60x60
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:printer-3d-nozzle
     id: icon_3dprinter_hotend
     resize: 40x40
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
   - file: mdi:square
     id: icon_3dprinter_bed
     resize: 40x40
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
   ## Devices
   ## Dispositivos
