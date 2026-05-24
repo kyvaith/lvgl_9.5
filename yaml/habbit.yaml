@@ -735,12 +735,12 @@ media_player:
     name: "Habbit Desk PRO"
     id: speaker_player
     media_pipeline:
-      speaker: tab5_speaker
+      speaker: media_source
       format: FLAC
       sample_rate: 48000
       num_channels: 1
     announcement_pipeline:
-      speaker: tab5_speaker
+      speaker: announcement_source
       format: FLAC
       sample_rate: 48000
       num_channels: 1
@@ -2229,6 +2229,15 @@ speaker:
     buffer_duration: 100ms
     bits_per_sample: 16bit
     sample_rate: 48000
+  - platform: mixer
+    id: mixer_speaker
+    output_speaker: tab5_speaker
+    num_channels: 1
+    source_speakers:
+      - id: media_source
+        timeout: 5s
+      - id: announcement_source
+        timeout: 5s
 
 time:
   - platform: homeassistant
