@@ -2344,6 +2344,7 @@ voice_assistant:
                 media_player.is_announcing:
             - not:
                 speaker.is_playing:
+                  id: tab5_speaker
     - delay: 5s
     - micro_wake_word.start:
     - lvgl.image.update:
