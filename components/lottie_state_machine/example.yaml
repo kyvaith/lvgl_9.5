@@ -1,0 +1,165 @@
+# =============================================================================
+# Exemple complet : Lottie State Machine pour ESPHome
+# =============================================================================
+#
+# Ce fichier montre comment utiliser le composant lottie_state_machine
+# avec un Lottie animé sur un écran LVGL.
+#
+# Le composant crée automatiquement dans Home Assistant :
+#
+#   ┌─────────────────────────────────────────────────┐
+#   │  Home Assistant                                 │
+#   │                                                 │
+#   │  🔘 Robot Play          [ON / OFF]              │
+#   │  📋 Robot State         [idle ▼]                │
+#   │                          idle                   │
+#   │                          active                 │
+#   │                          alert                  │
+#   │  🏎️ Robot Speed          [1.0]                  │
+#   │  🎞️ Robot Frame          [0]                    │
+#   │  📊 Robot Current Frame  142                    │
+#   └─────────────────────────────────────────────────┘
+#
+# =============================================================================
+
+# --- 1. Composant externe ---
+external_components:
+  - source:
+      type: git
+      url: https://github.com/youkorr/lvgl_9.5
+      ref: claude/jolly-lamport-ERZOC
+    components: [lvgl, image, font, lottie_state_machine]
+
+# --- 2. Widget Lottie dans LVGL ---
+# Le fichier robot.json contient 480 frames (700x700 pixels)
+# L'animation complète dure ~16 secondes à 30fps
+#
+# On ne met PAS auto_start: true car c'est la state machine
+# qui contrôle quand et quoi jouer.
+
+lvgl:
+  pages:
+    - id: page_home
+      widgets:
+        - lottie:
+            id: my_robot
+            file: "robot.json"     # Fichier Lottie sur la carte SD ou embarqué
+            width: 700
+            height: 700
+            loop: false            # Contrôlé par la state machine
+            auto_start: false      # Contrôlé par la state machine
+            align: CENTER
+
+# --- 3. State Machine ---
+# Définit les états avec des segments de frames.
+#
+# Votre Lottie de 480 frames est découpé en 3 états :
+#
+#   idle   : frames 0 à 160   → boucle (le robot respire doucement)
+#   active : frames 161 à 320 → boucle (le robot bouge activement)
+#   alert  : frames 321 à 480 → une seule fois (le robot fait une alerte)
+#
+# Adaptez les numéros de frames selon VOTRE fichier Lottie !
+
+lottie_state_machine:
+  id: robot_sm
+  lottie_id: my_robot
+  name: "Robot"
+  initial_state: idle
+  states:
+    idle:
+      segment: [0, 160]
+      loop: true
+    active:
+      segment: [161, 320]
+      loop: true
+    alert:
+      segment: [321, 480]
+      loop: false
+
+# --- 4. Utilisation dans les automations ESPHome ---
+#
+# Exemple : changer d'état selon les événements
+
+# Quand une notification arrive → alerte
+text_sensor:
+  - platform: homeassistant
+    id: notification_text
+    entity_id: input_text.notifications
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return !x.empty();'
+            then:
+              - lottie_state_machine.set_state:
+                  id: robot_sm
+                  state: alert
+            else:
+              - lottie_state_machine.set_state:
+                  id: robot_sm
+                  state: idle
+
+# Quand le voice assistant s'active → actif
+voice_assistant:
+  on_wake_word_detected:
+    - lottie_state_machine.set_state:
+        id: robot_sm
+        state: active
+  on_end:
+    - lottie_state_machine.set_state:
+        id: robot_sm
+        state: idle
+
+# --- 5. Contrôle depuis Home Assistant ---
+#
+# Dans le dashboard HA, vous pouvez :
+#
+# a) Changer d'état avec le dropdown "Robot State" :
+#    - Sélectionner "idle", "active" ou "alert"
+#    - L'animation joue le segment correspondant
+#
+# b) Play/Pause avec le switch "Robot Play" :
+#    - ON  = l'animation joue
+#    - OFF = l'animation est en pause
+#
+# c) Changer la vitesse avec "Robot Speed" :
+#    - 0.5 = moitié vitesse
+#    - 1.0 = vitesse normale
+#    - 2.0 = double vitesse
+#
+# d) Aller à une frame précise avec "Robot Frame" :
+#    - Entrer un numéro de frame (0 à 480)
+#    - L'animation se met en pause sur cette frame
+#
+# e) Voir la frame en cours avec "Robot Current Frame" :
+#    - Capteur lecture seule mis à jour en temps réel
+#
+# --- 6. Automatisation HA (exemples) ---
+#
+# Dans automations.yaml de Home Assistant :
+#
+#   - alias: "Robot alerte quand porte ouvre"
+#     trigger:
+#       - platform: state
+#         entity_id: binary_sensor.porte_entree
+#         to: "on"
+#     action:
+#       - service: select.select_option
+#         target:
+#           entity_id: select.robot_state
+#         data:
+#           option: "alert"
+#
+#   - alias: "Robot idle après 30 secondes"
+#     trigger:
+#       - platform: state
+#         entity_id: select.robot_state
+#         to: "alert"
+#         for: "00:00:30"
+#     action:
+#       - service: select.select_option
+#         target:
+#           entity_id: select.robot_state
+#         data:
+#           option: "idle"
