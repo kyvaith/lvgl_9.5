@@ -2,23 +2,18 @@
 # Exemple complet : Lottie State Machine pour ESPHome
 # =============================================================================
 #
-# Ce fichier montre comment utiliser le composant lottie_state_machine
-# avec un Lottie animé sur un écran LVGL.
+# Fichier : AIrobo2.json (700x700, 480 frames, 60fps)
+# Le fichier a "op": 29 à la racine — sans state machine, seul l'état
+# "idle" (frames 0-29) est joué. La state machine permet de jouer
+# les 6 états définis par les marqueurs du fichier Lottie.
 #
-# Le composant crée automatiquement dans Home Assistant :
-#
-#   ┌─────────────────────────────────────────────────┐
-#   │  Home Assistant                                 │
-#   │                                                 │
-#   │  🔘 Robot Play          [ON / OFF]              │
-#   │  📋 Robot State         [idle ▼]                │
-#   │                          idle                   │
-#   │                          active                 │
-#   │                          alert                  │
-#   │  🏎️ Robot Speed          [1.0]                  │
-#   │  🎞️ Robot Frame          [0]                    │
-#   │  📊 Robot Current Frame  142                    │
-#   └─────────────────────────────────────────────────┘
+# Marqueurs extraits du JSON :
+#   idle     : frames 0-29    (0.5s)  → robot calme, respire
+#   yes      : frames 31-105  (1.2s)  → robot hoche la tête (oui)
+#   no       : frames 106-180 (1.2s)  → robot secoue la tête (non)
+#   alert    : frames 181-270 (1.5s)  → robot en alerte
+#   thinking : frames 271-390 (2.0s)  → robot réfléchit
+#   jump     : frames 391-479 (1.5s)  → robot saute
 #
 # =============================================================================
 
@@ -31,11 +26,9 @@ external_components:
     components: [lvgl, image, font, lottie_state_machine]
 
 # --- 2. Widget Lottie dans LVGL ---
-# Le fichier robot.json contient 480 frames (700x700 pixels)
-# L'animation complète dure ~16 secondes à 30fps
-#
-# On ne met PAS auto_start: true car c'est la state machine
-# qui contrôle quand et quoi jouer.
+# Le fichier AIrobo2.json est sur la carte SD.
+# auto_start: false car c'est la state machine qui contrôle la lecture.
+# loop: false car chaque état définit son propre comportement de boucle.
 
 lvgl:
   pages:
@@ -43,23 +36,18 @@ lvgl:
       widgets:
         - lottie:
             id: my_robot
-            file: "robot.json"     # Fichier Lottie sur la carte SD ou embarqué
+            src: "/sdcard/AIrobo2.json"
             width: 700
             height: 700
-            loop: false            # Contrôlé par la state machine
-            auto_start: false      # Contrôlé par la state machine
+            loop: false
+            auto_start: false
             align: CENTER
 
 # --- 3. State Machine ---
-# Définit les états avec des segments de frames.
-#
-# Votre Lottie de 480 frames est découpé en 3 états :
-#
-#   idle   : frames 0 à 160   → boucle (le robot respire doucement)
-#   active : frames 161 à 320 → boucle (le robot bouge activement)
-#   alert  : frames 321 à 480 → une seule fois (le robot fait une alerte)
-#
-# Adaptez les numéros de frames selon VOTRE fichier Lottie !
+# Les 6 états correspondent aux marqueurs du fichier Lottie.
+# Chaque segment est défini par [frame_début, frame_fin].
+# loop: true = l'animation boucle sur ce segment
+# loop: false = l'animation joue une fois puis s'arrête
 
 lottie_state_machine:
   id: robot_sm
@@ -68,30 +56,69 @@ lottie_state_machine:
   initial_state: idle
   states:
     idle:
-      segment: [0, 160]
+      segment: [0, 29]
       loop: true
-    active:
-      segment: [161, 320]
-      loop: true
+    yes:
+      segment: [31, 105]
+      loop: false
+    no:
+      segment: [106, 180]
+      loop: false
     alert:
-      segment: [321, 480]
+      segment: [181, 270]
+      loop: true
+    thinking:
+      segment: [271, 390]
+      loop: true
+    jump:
+      segment: [391, 479]
       loop: false
 
 # --- 4. Utilisation dans les automations ESPHome ---
 #
 # IMPORTANT : ne PAS créer de nouveaux sensors/text_sensors ici !
-# Ajoutez les actions lottie_state_machine.set_state dans vos
-# sensors EXISTANTS. Exemple avec le sensor notification déjà présent :
+# Ajoutez les actions dans vos sensors EXISTANTS.
+#
+# Exemples d'utilisation avec chaque état :
+#
+#   # Notification reçue → robot en alerte
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: alert
+#
+#   # Voice assistant activé → robot réfléchit
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: thinking
+#
+#   # Commande vocale réussie → robot dit oui
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: yes
+#
+#   # Commande vocale échouée → robot dit non
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: no
+#
+#   # Événement spécial → robot saute de joie
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: jump
+#
+#   # Retour au calme → robot idle
+#   - lottie_state_machine.set_state:
+#       id: robot_sm
+#       state: idle
+#
+# --- 5. Intégration dans le sensor notification existant ---
 #
 #   - platform: homeassistant
 #     id: notification_text            # ← celui qui EXISTE DÉJÀ
 #     entity_id: ${notifications}
-#     internal: true
 #     on_value:
 #       then:
-#         # ... vos actions existantes (label update, lambda, etc.) ...
-#
-#         # Ajouter à la fin du bloc if/else existant :
+#         # ... vos actions existantes ...
 #         - if:
 #             condition:
 #               lambda: 'return id(notification);'
@@ -106,45 +133,27 @@ lottie_state_machine:
 #                   id: robot_sm
 #                   state: idle
 #
-# Pareil pour le voice assistant (ajoutez dans celui qui existe) :
+# --- 6. Intégration dans le voice assistant existant ---
 #
 #   voice_assistant:
 #     on_wake_word_detected:
 #       - lottie_state_machine.set_state:
 #           id: robot_sm
-#           state: active
+#           state: thinking
 #       - lvgl.page.show: page_assistant
+#
+#     on_tts_start:
+#       - lottie_state_machine.set_state:
+#           id: robot_sm
+#           state: yes
+#
 #     on_end:
 #       - lottie_state_machine.set_state:
 #           id: robot_sm
 #           state: idle
 #       - lvgl.page.show: page_home
-
-# --- 5. Contrôle depuis Home Assistant ---
 #
-# Dans le dashboard HA, vous pouvez :
-#
-# a) Changer d'état avec le dropdown "Robot State" :
-#    - Sélectionner "idle", "active" ou "alert"
-#    - L'animation joue le segment correspondant
-#
-# b) Play/Pause avec le switch "Robot Play" :
-#    - ON  = l'animation joue
-#    - OFF = l'animation est en pause
-#
-# c) Changer la vitesse avec "Robot Speed" :
-#    - 0.5 = moitié vitesse
-#    - 1.0 = vitesse normale
-#    - 2.0 = double vitesse
-#
-# d) Aller à une frame précise avec "Robot Frame" :
-#    - Entrer un numéro de frame (0 à 480)
-#    - L'animation se met en pause sur cette frame
-#
-# e) Voir la frame en cours avec "Robot Current Frame" :
-#    - Capteur lecture seule mis à jour en temps réel
-#
-# --- 6. Automatisation HA (exemples) ---
+# --- 7. Automatisation HA (exemples) ---
 #
 # Dans automations.yaml de Home Assistant :
 #
@@ -156,19 +165,31 @@ lottie_state_machine:
 #     action:
 #       - service: select.select_option
 #         target:
-#           entity_id: select.robot_state
+#           entity_id: select.habbit_desk_pro_robot_state
 #         data:
 #           option: "alert"
+#
+#   - alias: "Robot saute quand objectif atteint"
+#     trigger:
+#       - platform: numeric_state
+#         entity_id: sensor.abonnes_youtube
+#         above: 3000
+#     action:
+#       - service: select.select_option
+#         target:
+#           entity_id: select.habbit_desk_pro_robot_state
+#         data:
+#           option: "jump"
 #
 #   - alias: "Robot idle après 30 secondes"
 #     trigger:
 #       - platform: state
-#         entity_id: select.robot_state
+#         entity_id: select.habbit_desk_pro_robot_state
 #         to: "alert"
 #         for: "00:00:30"
 #     action:
 #       - service: select.select_option
 #         target:
-#           entity_id: select.robot_state
+#           entity_id: select.habbit_desk_pro_robot_state
 #         data:
 #           option: "idle"
