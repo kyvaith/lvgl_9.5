@@ -303,11 +303,19 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
     // show/hide from user scripts (e.g. weather widget selection).
     ctx->runtime_hidden = lv_obj_has_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
 
-    // Stop the render task immediately
+    // Signal the render task to stop – it will suspend itself.
+    // Do NOT call vTaskDelete here: the task may hold lv_lock(),
+    // causing a deadlock that triggers the task watchdog.
     ctx->stop_requested = true;
+
+    // Give the task time to see the flag and suspend (max ~50 ms)
     if (ctx->task_handle) {
-        vTaskDelete(ctx->task_handle);
-        ctx->task_handle = nullptr;
+        for (int i = 0; i < 10; i++) {
+            if (eTaskGetState(ctx->task_handle) == eSuspended) break;
+            lv_unlock();
+            vTaskDelay(pdMS_TO_TICKS(5));
+            lv_lock();
+        }
     }
 
     // Hide widget so LVGL won't try to draw the image during transition
@@ -319,7 +327,11 @@ inline void lottie_screen_unload_start_cb(lv_event_t *e) {
 inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     LottieContext *ctx = (LottieContext *)lv_event_get_user_data(e);
 
-    // Now safe to free – screen is no longer visible
+    // Now safe to delete the task and free – screen is no longer visible
+    if (ctx->task_handle) {
+        vTaskDelete(ctx->task_handle);
+        ctx->task_handle = nullptr;
+    }
     if (ctx->task_stack)    { heap_caps_free(ctx->task_stack);    ctx->task_stack = nullptr; }
     if (ctx->task_tcb)      { heap_caps_free(ctx->task_tcb);      ctx->task_tcb = nullptr; }
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
