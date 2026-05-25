@@ -19,6 +19,12 @@ namespace lvgl {
 static const char *const LOTTIE_TAG = "lottie";
 static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
 
+// Global registry of LottieContexts - allows state machine to find contexts by name
+inline std::map<std::string, void*> &lottie_registry() {
+    static std::map<std::string, void*> registry;
+    return registry;
+}
+
 // State machine states
 enum LottieState : uint8_t {
     LOTTIE_STATE_STOPPED = 0,
@@ -368,7 +374,8 @@ inline void lottie_screen_loaded_cb(lv_event_t *e) {
 // --------------------------------------------------------------------------
 inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
                          const char *file_path, uint32_t width, uint32_t height,
-                         bool loop, bool auto_start, bool user_wants_hidden) {
+                         bool loop, bool auto_start, bool user_wants_hidden,
+                         const char *widget_id = nullptr) {
     LottieContext *ctx = (LottieContext *)heap_caps_malloc(
         sizeof(LottieContext), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!ctx) return false;
@@ -387,6 +394,12 @@ inline bool lottie_init(lv_obj_t *obj, const void *data, size_t data_size,
     ctx->state     = LOTTIE_STATE_STOPPED;
 
     lv_obj_set_user_data(obj, ctx);
+
+    // Register in global registry so state machine can find us by name
+    if (widget_id != nullptr) {
+        lottie_registry()[std::string(widget_id)] = ctx;
+        ESP_LOGI(LOTTIE_TAG, "Registered in global registry as '%s'", widget_id);
+    }
 
     lv_obj_t *screen = lv_obj_get_screen(obj);
     lv_obj_add_event_cb(screen, lottie_screen_unload_start_cb,

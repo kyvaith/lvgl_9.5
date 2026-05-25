@@ -71,30 +71,23 @@ class LottieStateMachineComponent : public Component {
 
   void loop() override {
 #if LV_USE_LOTTIE
-    // Retry connection if not yet established (Lottie loads async)
+    // Retry connection via global registry (widget loads async from SD)
     if (this->ctx_ == nullptr) {
-      if (this->lottie_obj_ == nullptr) {
-        // Only log once
-        static bool logged = false;
-        if (!logged) {
-          ESP_LOGE(TAG, "'%s' lottie_obj_ is NULL! set_lottie_obj() was not called", this->name_.c_str());
-          logged = true;
-        }
-      } else {
-        lv_lock();
-        this->ctx_ = (lvgl::LottieContext *)lv_obj_get_user_data(this->lottie_obj_);
-        lv_unlock();
-        if (this->ctx_ != nullptr) {
-          ESP_LOGI(TAG, "'%s' connected to Lottie widget (deferred)", this->name_.c_str());
-          if (!this->initial_state_.empty()) {
-            this->set_state(this->initial_state_);
-          }
+      auto &reg = lvgl::lottie_registry();
+      auto it = reg.find(this->lottie_id_);
+      if (it != reg.end() && it->second != nullptr) {
+        this->ctx_ = (lvgl::LottieContext *)it->second;
+        ESP_LOGI(TAG, "'%s' connected to Lottie '%s' via registry",
+                 this->name_.c_str(), this->lottie_id_.c_str());
+        if (!this->initial_state_.empty()) {
+          this->set_state(this->initial_state_);
         }
       }
     }
 #endif
   }
 
+  // Legacy - kept for compatibility but registry is used instead
   void set_lottie_obj(lv_obj_t *obj) { this->lottie_obj_ = obj; }
 
   // --- Public API ---
