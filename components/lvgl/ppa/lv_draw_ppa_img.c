@@ -13,6 +13,7 @@
 #include "src/draw/lv_draw_image_private.h"
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/draw/lv_image_decoder.h"
+#include <math.h>
 
 static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
                                  const lv_image_decoder_dsc_t * decoder_dsc, lv_draw_image_sup_t * sup,
@@ -117,76 +118,78 @@ static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t *
 
 #ifdef LV_USE_PPA_IMG
 
-/* -------------------------------------------------------------------------
- * Ken Burns: hardware-accelerated arbitrary scale + pan via PPA SRM engine.
- *
- * LVGL calls lv_draw_image_normal_helper which provides:
- *   img_coords      – virtual (post-scale) image rectangle in screen coords
- *   clipped_img_area – intersection of img_coords with the display clip region
- *
- * We invert the scale to find the source block inside the decoded image that
- * maps onto clipped_img_area, then hand it to ppa_do_scale_rotate_mirror().
- * The CPU performs zero pixel work; the PPA DMA engine does all interpolation.
- * ------------------------------------------------------------------------- */
-
-static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
-                                      const lv_image_decoder_dsc_t * decoder_dsc,
-                                      lv_draw_image_sup_t * sup,
-                                      const lv_area_t * img_coords,
-                                      const lv_area_t * clipped_img_area)
+void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
+                          const lv_area_t * coords)
 {
-    LV_UNUSED(sup);
+    if(dsc->opa <= (lv_opa_t)LV_OPA_MIN) return;
 
-    lv_draw_ppa_unit_t * u = (lv_draw_ppa_unit_t *)t->draw_unit;
-    lv_layer_t * layer      = t->target_layer;
-    lv_draw_buf_t * dest_buf = layer->draw_buf;
-    const lv_draw_buf_t * decoded = decoder_dsc->decoded;
+    lv_draw_ppa_unit_t * u   = (lv_draw_ppa_unit_t *)t->draw_unit;
+    lv_layer_t * layer        = t->target_layer;
+    lv_draw_buf_t * dest_buf  = layer->draw_buf;
 
-    if(!decoded || !decoded->data) return;
+    lv_image_decoder_dsc_t decoder_dsc;
+    lv_image_decoder_args_t dec_args;
+    lv_memzero(&dec_args, sizeof(dec_args));
+    dec_args.flush_cache = true;
+
+    lv_result_t res = lv_image_decoder_open(&decoder_dsc, dsc->src, &dec_args);
+    if(res != LV_RESULT_OK) return;
+
+    const lv_draw_buf_t * decoded = decoder_dsc.decoded;
+    if(!decoded || !decoded->data) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
     lv_color_format_t src_cf  = (lv_color_format_t)decoded->header.cf;
     lv_color_format_t dest_cf = (lv_color_format_t)dest_buf->header.cf;
+    if(!ppa_src_cf_supported(src_cf) || !ppa_dest_cf_supported(dest_cf)) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
-    if(!ppa_src_cf_supported(src_cf) || !ppa_dest_cf_supported(dest_cf)) return;
-
-    /* Virtual (post-scale) dimensions */
-    int32_t virt_w = lv_area_get_width(img_coords);
-    int32_t virt_h = lv_area_get_height(img_coords);
-    if(virt_w <= 0 || virt_h <= 0) return;
+    float sx = (dsc->scale_x != LV_SCALE_NONE) ? ((float)dsc->scale_x / 256.0f) : 1.0f;
+    float sy = (dsc->scale_y != LV_SCALE_NONE) ? ((float)dsc->scale_y / 256.0f) : 1.0f;
 
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Scale factors: virtual / source */
-    float scale_x = (float)virt_w / (float)src_w;
-    float scale_y = (float)virt_h / (float)src_h;
+    /* Virtual image origin in screen coords: pivot maps to same screen pos under any scale */
+    float virt_x = (float)coords->x1 + (float)dsc->pivot_x * (1.0f - sx);
+    float virt_y = (float)coords->y1 + (float)dsc->pivot_y * (1.0f - sy);
 
-    /* Visible clip relative to virtual image origin */
-    int32_t clip_rel_x = clipped_img_area->x1 - img_coords->x1;
-    int32_t clip_rel_y = clipped_img_area->y1 - img_coords->y1;
-    int32_t clip_w     = lv_area_get_width(clipped_img_area);
-    int32_t clip_h     = lv_area_get_height(clipped_img_area);
+    int32_t clip_w = lv_area_get_width(&t->area);
+    int32_t clip_h = lv_area_get_height(&t->area);
+    if(clip_w <= 0 || clip_h <= 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
-    if(clip_w <= 0 || clip_h <= 0) return;
+    /* Map the destination tile's top-left corner back into source image space */
+    int32_t src_bx = (int32_t)(((float)t->area.x1 - virt_x) / sx);
+    int32_t src_by = (int32_t)(((float)t->area.y1 - virt_y) / sy);
 
-    /* Map clip area back to source space */
-    uint32_t src_bx = (uint32_t)(clip_rel_x / scale_x);
-    uint32_t src_by = (uint32_t)(clip_rel_y / scale_y);
-    uint32_t src_bw = (uint32_t)((float)clip_w / scale_x + 0.5f);
-    uint32_t src_bh = (uint32_t)((float)clip_h / scale_y + 0.5f);
+    /* ceilf guarantees the source block covers the full destination tile (no seam gaps) */
+    uint32_t src_bw = (uint32_t)ceilf((float)clip_w / sx);
+    uint32_t src_bh = (uint32_t)ceilf((float)clip_h / sy);
 
-    /* Clamp to source bounds */
-    if(src_bx >= src_w || src_by >= src_h) return;
-    if(src_bx + src_bw > src_w) src_bw = src_w - src_bx;
-    if(src_by + src_bh > src_h) src_bh = src_h - src_by;
-    if(src_bw == 0 || src_bh == 0) return;
+    if(src_bx < 0 || src_by < 0 ||
+       (uint32_t)src_bx >= src_w || (uint32_t)src_by >= src_h) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
+    if((uint32_t)src_bx + src_bw > src_w) src_bw = src_w - (uint32_t)src_bx;
+    if((uint32_t)src_by + src_bh > src_h) src_bh = src_h - (uint32_t)src_by;
+    if(src_bw == 0 || src_bh == 0) {
+        lv_image_decoder_close(&decoder_dsc);
+        return;
+    }
 
     /* Destination in layer-buffer coordinates */
     lv_area_t dest_area;
-    lv_area_copy(&dest_area, clipped_img_area);
+    lv_area_copy(&dest_area, &t->area);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
-    /* Flush source for PPA DMA */
     if(decoded->data_size > 0) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
@@ -201,8 +204,8 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
     cfg.in.pic_h          = src_h;
     cfg.in.block_w        = src_bw;
     cfg.in.block_h        = src_bh;
-    cfg.in.block_offset_x = src_bx;
-    cfg.in.block_offset_y = src_by;
+    cfg.in.block_offset_x = (uint32_t)src_bx;
+    cfg.in.block_offset_y = (uint32_t)src_by;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
     cfg.out.buffer         = dest_buf->data;
@@ -214,8 +217,8 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
     cfg.out.srm_cm         = lv_color_format_to_ppa_srm(dest_cf);
 
     cfg.rotation_angle    = PPA_SRM_ROTATION_ANGLE_0;
-    cfg.scale_x           = scale_x;
-    cfg.scale_y           = scale_y;
+    cfg.scale_x           = sx;
+    cfg.scale_y           = sy;
     cfg.mirror_x          = false;
     cfg.mirror_y          = false;
     cfg.rgb_swap          = false;
@@ -227,16 +230,10 @@ static void lv_draw_img_ppa_srm_core(lv_draw_task_t * t, const lv_draw_image_dsc
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM scale failed: %d (src %ux%u scale %.2f/%.2f)",
-                     (int)ret, src_w, src_h, (double)scale_x, (double)scale_y);
+                     (int)ret, src_w, src_h, (double)sx, (double)sy);
     }
-}
 
-void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
-                          const lv_area_t * coords)
-{
-    if(dsc->opa <= (lv_opa_t)LV_OPA_MIN)
-        return;
-    lv_draw_image_normal_helper(t, dsc, coords, lv_draw_img_ppa_srm_core, NULL);
+    lv_image_decoder_close(&decoder_dsc);
 }
 
 /**
