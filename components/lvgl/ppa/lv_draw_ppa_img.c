@@ -155,8 +155,8 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_h = decoded->header.h;
 
     /* Virtual image origin in screen coords: pivot maps to same screen pos under any scale */
-    float virt_x = (float)coords->x1 + (float)dsc->pivot_x * (1.0f - sx);
-    float virt_y = (float)coords->y1 + (float)dsc->pivot_y * (1.0f - sy);
+    float virt_x = (float)coords->x1 + (float)dsc->pivot.x * (1.0f - sx);
+    float virt_y = (float)coords->y1 + (float)dsc->pivot.y * (1.0f - sy);
 
     int32_t clip_w = lv_area_get_width(&t->area);
     int32_t clip_h = lv_area_get_height(&t->area);
