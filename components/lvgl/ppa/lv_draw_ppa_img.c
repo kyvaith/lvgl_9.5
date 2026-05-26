@@ -217,7 +217,14 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
     cfg.out.buffer         = dest_buf->data;
-    cfg.out.buffer_size    = lv_draw_ppa_align_size(dest_buf->data_size);
+    /* PPA assert: (offset_y + new_block_h) * pic_w * bpp <= buffer_size.
+     * Check-1 guarantees new_block_h <= pic_h - offset_y, so buffer_size
+     * must be >= pic_w * pic_h * bpp.  data_size may differ (stride, adapter),
+     * so compute from header dimensions directly. */
+    uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
+                       (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
+    cfg.out.buffer_size    = lv_draw_ppa_align_size((uint32_t)dest_buf->header.w *
+                                                     dest_buf->header.h * out_bpp);
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
