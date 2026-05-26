@@ -32,10 +32,17 @@
 #include "esp_cache.h"
 #include "esp_private/esp_cache_private.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 
 /*********************
 *      DEFINES
 *********************/
+
+#ifdef CONFIG_CACHE_L2_CACHE_LINE_SIZE
+#define PPA_CACHE_LINE_SIZE  ((uint32_t)CONFIG_CACHE_L2_CACHE_LINE_SIZE)
+#else
+#define PPA_CACHE_LINE_SIZE  64U
+#endif
 
 /**********************
 *      TYPEDEFS
@@ -61,6 +68,11 @@ static inline uint32_t lv_draw_ppa_align_size(uint32_t size)
 {
     uint32_t alignment = lv_draw_ppa_cache_align();
     return (size + alignment - 1U) & ~(alignment - 1U);
+}
+
+static inline bool lv_draw_ppa_buf_cache_aligned(const void * p)
+{
+    return ((uintptr_t)p % lv_draw_ppa_cache_align()) == 0;
 }
 
 typedef struct lv_draw_ppa_unit {
