@@ -13,12 +13,10 @@
 #   - lv_draw_ppa_img_srm() inverts the scale to find the source block,
 #     then calls ppa_do_scale_rotate_mirror() — zero CPU pixel work.
 #
-# Image requirements:
-#   - Place a landscape photo named "landscape.jpg" (or .png) in your
-#     ESPHome config directory.
-#   - Recommended size: 1400x840 or larger (gives room to pan without
-#     hitting image edges during zoom).
-#   - RGB565 or RGBA format; JPEG is decoded to RGB565 at build time.
+# Image:
+#   lvgl_rgb888_demo.png (1280×800) — already present in this repo.
+#   Larger than the 1024×600 display, so there is room to pan without
+#   hitting image edges even at 1.0x scale.
 #
 # Animation (two alternating phases, 8 s each):
 #   Phase A: zoom 1.0x → 1.4x, pan upper-left → lower-right
@@ -97,13 +95,11 @@ display:
       height: 600
 
 # --- Image ---
-# Place a landscape photo (>=1400x840 recommended) named "landscape.jpg"
-# in your ESPHome config directory.
+# lvgl_rgb888_demo.png is 1280×800 — already in the repo root.
 image:
-  - file: "landscape.jpg"
+  - file: "lvgl_rgb888_demo.png"
     id: img_landscape
-    type: RGB565
-    resize: 1400x840    # Larger than display → room to pan during zoom
+    type: RGB565          # PPA SRM supports RGB565 natively
 
 # --- Global state ---
 globals:
@@ -164,8 +160,8 @@ interval:
 
           // Phase 0: zoom in, pan upper-left → center
           // Phase 1: zoom out, pan center → lower-right (reversed)
-          const int px0 = 200, py0 = 150;   // start pivot (upper-left region)
-          const int px1 = 1200, py1 = 690;  // end pivot (lower-right region)
+          const int px0 = 180, py0 = 130;   // start pivot (upper-left region, img 1280×800)
+          const int px1 = 1100, py1 = 670;  // end pivot (lower-right region)
 
           if(phase == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
@@ -229,18 +225,17 @@ lvgl:
             overflow: HIDDEN
 
             widgets:
-              # Ken Burns image widget
-              # Declared at 1400×840 so scale + pan stay within image bounds.
+              # Ken Burns image widget (source: 1280×800)
               # LVGL clips the visible 1024×600 area; PPA SRM renders only
               # the visible source block — no wasted memory bandwidth.
               - image:
                   id: lv_kb_image
                   src: img_landscape
                   align: CENTER
-                  # Initial state: no zoom, pivot at image center
+                  # Initial state: no zoom, pivot at image center (1280/2, 800/2)
                   scale: 256          # LV_SCALE_NONE = 1.0x
-                  pivot_x: 700        # center of 1400-wide image
-                  pivot_y: 420        # center of 840-tall image
+                  pivot_x: 640        # center of 1280-wide image
+                  pivot_y: 400        # center of 800-tall image
 
         # HUD overlay (drawn on top of the Ken Burns layer)
         - obj:
