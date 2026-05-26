@@ -222,7 +222,7 @@ lvgl:
             border_width: 0
             pad_all: 0
             clip_corner: true
-            overflow: HIDDEN
+            overflow_visible: false
 
             widgets:
               # Ken Burns image widget (source: 1280×800)
@@ -233,7 +233,7 @@ lvgl:
                   src: img_landscape
                   align: CENTER
                   # Initial state: no zoom, pivot at image center (1280/2, 800/2)
-                  scale: 256          # LV_SCALE_NONE = 1.0x
+                  scale: 1.0          # 1.0 = 100% ; lambdas utilisent lv_image_set_scale() en entiers LVGL
                   pivot_x: 640        # center of 1280-wide image
                   pivot_y: 400        # center of 800-tall image
 
