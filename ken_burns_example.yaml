@@ -33,12 +33,13 @@ substitutions:
   display_w: "1024"
   display_h: "600"
 
+  # Votre image JPG 1024×600 — remplacez par votre nom de fichier
+  ken_burns_image: "votre_image.jpg"
+
   # Ken Burns animation parameters
   anim_duration_ms: "8000"   # Duration of one zoom+pan phase (ms)
   zoom_start: "256"          # LV_SCALE_NONE = 1.0x
   zoom_end:   "358"          # ~1.4x (256 * 1.4 = 358)
-  pan_range_x: "160"         # pixels to pan on X axis
-  pan_range_y: "90"          # pixels to pan on Y axis
 
 esphome:
   name: ${name}
@@ -97,11 +98,13 @@ display:
 # --- Image ---
 # lvgl_rgb888_demo.png is 1280×800 — already in the repo root.
 image:
-  - file: "lvgl_rgb888_demo.png"
+  # Image source 1024×600 upscalée à 1400×820 à la compilation.
+  # Nécessaire : à 1.0× l'image couvre pile l'écran → pas de marge pour bouger.
+  # Avec 1400×820, à 1.4× zoom la zone virtuelle fait 1960×1148 → 936px de pan dispo.
+  - file: ${ken_burns_image}
     id: img_landscape
-    type: RGB565          # PPA SRM supports RGB565 natively
-    resize: 1400x820      # Upscale source : 1024×600 → 1400×820 pour avoir de la marge pan+zoom
-                          # (ratio ~1024:600 conservé ; légère interpolation à la compilation)
+    type: RGB565
+    resize: 1400x820
 
 # --- Global state ---
 globals:
