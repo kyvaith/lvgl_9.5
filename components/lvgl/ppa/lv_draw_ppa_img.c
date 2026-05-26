@@ -127,6 +127,11 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     lv_layer_t * layer        = t->target_layer;
     lv_draw_buf_t * dest_buf  = layer->draw_buf;
 
+    /* coords = image rect at 1:1 scale (may extend off-screen).
+     * Intersect with the render tile to get the actual visible clip. */
+    lv_area_t visible_area;
+    if(!lv_area_intersect(&visible_area, coords, &layer->buf_area)) return;
+
     lv_image_decoder_dsc_t decoder_dsc;
     lv_image_decoder_args_t dec_args;
     lv_memzero(&dec_args, sizeof(dec_args));
@@ -154,31 +159,27 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     uint32_t src_w = decoded->header.w;
     uint32_t src_h = decoded->header.h;
 
-    /* Virtual image origin in screen coords: pivot maps to same screen pos under any scale */
+    /* Virtual image origin: pivot stays fixed on screen as scale changes.
+     * coords->x1/y1 = image top-left at 1:1 scale. */
     float virt_x = (float)coords->x1 + (float)dsc->pivot.x * (1.0f - sx);
     float virt_y = (float)coords->y1 + (float)dsc->pivot.y * (1.0f - sy);
 
-    int32_t clip_w = lv_area_get_width(&t->area);
-    int32_t clip_h = lv_area_get_height(&t->area);
-    if(clip_w <= 0 || clip_h <= 0) {
-        lv_image_decoder_close(&decoder_dsc);
-        return;
-    }
+    /* Visible clip dimensions and buffer-local destination (always non-negative) */
+    int32_t clip_w = lv_area_get_width(&visible_area);
+    int32_t clip_h = lv_area_get_height(&visible_area);
 
-    /* Map the destination tile's top-left corner back into source image space */
-    int32_t src_bx = (int32_t)(((float)t->area.x1 - virt_x) / sx);
-    int32_t src_by = (int32_t)(((float)t->area.y1 - virt_y) / sy);
-
-    /* Destination in layer-buffer coordinates (needed before clamping) */
     lv_area_t dest_area;
-    lv_area_copy(&dest_area, &t->area);
+    lv_area_copy(&dest_area, &visible_area);
     lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
-    /* ceilf guarantees the source block covers the full destination tile (no seam gaps) */
+    /* Map visible tile top-left back into source image space */
+    int32_t src_bx = (int32_t)(((float)visible_area.x1 - virt_x) / sx);
+    int32_t src_by = (int32_t)(((float)visible_area.y1 - virt_y) / sy);
+
+    /* ceilf covers the full tile; floorf clamp prevents PPA check-1 overflow */
     uint32_t src_bw = (uint32_t)ceilf((float)clip_w / sx);
     uint32_t src_bh = (uint32_t)ceilf((float)clip_h / sy);
 
-    /* PPA validates: offset + block*scale <= pic_size.  Clamp so scaled output fits. */
     uint32_t avail_w = (uint32_t)(dest_buf->header.w - dest_area.x1);
     uint32_t avail_h = (uint32_t)(dest_buf->header.h - dest_area.y1);
     uint32_t max_src_bw = (uint32_t)floorf((float)avail_w / sx);
@@ -217,10 +218,7 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
     cfg.out.buffer         = dest_buf->data;
-    /* PPA assert: (offset_y + new_block_h) * pic_w * bpp <= buffer_size.
-     * Check-1 guarantees new_block_h <= pic_h - offset_y, so buffer_size
-     * must be >= pic_w * pic_h * bpp.  data_size may differ (stride, adapter),
-     * so compute from header dimensions directly. */
+    /* buffer_size = pic_w * pic_h * bpp so the assert passes when check-1 passes */
     uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
                        (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
     cfg.out.buffer_size    = lv_draw_ppa_align_size((uint32_t)dest_buf->header.w *
