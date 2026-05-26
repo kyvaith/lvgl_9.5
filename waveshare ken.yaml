@@ -649,7 +649,6 @@ storage:
 
     - id: space
       file_path: /diap/NCC4.jpg
-      resize: 1400x820
       format: rgb565
       byte_order: little_endian
     
@@ -4836,8 +4835,8 @@ lvgl:
                     align: CENTER
                     # Initial state: no zoom, pivot at image center (1280/2, 800/2)
                     scale: 1.0          # 1.0 = 100% ; lambdas utilisent lv_image_set_scale() en entiers LVGL
-                    pivot_x: 700        # centre de 1400px (NCC4.jpg resize 1400x820)
-                    pivot_y: 410        # centre de 820px (NCC4.jpg resize 1400x820)
+                    pivot_x: 640        # centre de 1280px (NCC4.jpg 1280×800)
+                    pivot_y: 400        # centre de 800px  (NCC4.jpg 1280×800)
   
           # HUD overlay (drawn on top of the Ken Burns layer)
           - obj:
@@ -7031,8 +7030,8 @@ interval:
 
           // Phase 0: zoom in, pan upper-left → center
           // Phase 1: zoom out, pan center → lower-right (reversed)
-          const int px0 = 180, py0 = 120;   // start pivot : haut-gauche (image 1400×820)
-          const int px1 = 1220, py1 = 700;  // end pivot   : bas-droite
+          const int px0 = 160, py0 = 130;   // start pivot : haut-gauche (image 1280×800)
+          const int px1 = 1120, py1 = 670;  // end pivot   : bas-droite
 
           if(phase == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
