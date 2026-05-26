@@ -182,6 +182,7 @@ INDICATOR_ARC_SCHEMA = (
             cv.Optional(CONF_START_VALUE): lv_float,
             cv.Optional(CONF_END_VALUE): lv_float,
             cv.Optional(CONF_OPA, default=1.0): opacity,
+            cv.Optional(CONF_ROUNDED, default=False): cv.boolean,
         }
     )
     .add_extra(cv.has_at_most_one_key(CONF_R_MOD, CONF_PADDING))
@@ -440,6 +441,10 @@ class MeterType(WidgetType):
                     opa_val = await opacity.process(v.get(CONF_OPA, 1.0))
                     lv_add(RawStatement(
                         f"lv_style_set_arc_opa(&{style_name}, {opa_val});"
+                    ))
+                    rounded = "true" if v[CONF_ROUNDED] else "false"
+                    lv_add(RawStatement(
+                        f"lv_style_set_arc_rounded(&{style_name}, {rounded});"
                     ))
 
                     tvar = cg.Pvariable(iid, lv_expr.scale_add_section(scale_var))
