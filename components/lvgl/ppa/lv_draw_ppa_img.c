@@ -217,12 +217,32 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.block_offset_y = (uint32_t)src_by;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
-    cfg.out.buffer         = dest_buf->data;
-    /* buffer_size = pic_w * pic_h * bpp so the assert passes when check-1 passes */
     uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
                        (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
-    cfg.out.buffer_size    = lv_draw_ppa_align_size((uint32_t)dest_buf->header.w *
-                                                     dest_buf->header.h * out_bpp);
+    uint32_t raw_bytes    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp;
+    uint32_t aligned_size = lv_draw_ppa_align_size(raw_bytes);
+
+    uint8_t * aligned_out = NULL;
+    uint8_t * out_ptr     = dest_buf->data;
+
+    if(esp_ptr_external_ram(dest_buf->data) &&
+       !lv_draw_ppa_buf_cache_aligned(dest_buf->data)) {
+        aligned_out = (uint8_t *)heap_caps_aligned_alloc(
+            PPA_CACHE_LINE_SIZE, aligned_size,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if(!aligned_out) {
+            LV_LOG_ERROR("PPA SRM: aligned alloc failed (%u B)", (unsigned)aligned_size);
+            lv_image_decoder_close(&decoder_dsc);
+            return;
+        }
+        memcpy(aligned_out, dest_buf->data, raw_bytes);
+        esp_cache_msync(aligned_out, aligned_size,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+        out_ptr = aligned_out;
+    }
+
+    cfg.out.buffer         = out_ptr;
+    cfg.out.buffer_size    = aligned_size;
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
@@ -244,6 +264,15 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM scale failed: %d (src %ux%u scale %.2f/%.2f)",
                      (int)ret, src_w, src_h, (double)sx, (double)sy);
+    }
+
+    if(aligned_out) {
+        if(ret == ESP_OK) {
+            esp_cache_msync(aligned_out, aligned_size,
+                            ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+            memcpy(dest_buf->data, aligned_out, raw_bytes);
+        }
+        heap_caps_free(aligned_out);
     }
 
     lv_image_decoder_close(&decoder_dsc);
@@ -340,10 +369,33 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.block_offset_y = 0;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
-    /* Output: write rotated image into layer buffer */
-    cfg.out.buffer         = dest_buf->data;
-    /* PPA hardware rejects unaligned out.buffer_size (issue #9868). */
-    cfg.out.buffer_size    = lv_draw_ppa_align_size(dest_buf->data_size);
+    lv_color_format_t dest_cf = (lv_color_format_t)dest_buf->header.cf;
+    uint32_t out_bpp_r = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
+                         (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
+    uint32_t raw_bytes_r    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp_r;
+    uint32_t aligned_size_r = lv_draw_ppa_align_size(raw_bytes_r);
+
+    uint8_t * aligned_out_r = NULL;
+    uint8_t * out_ptr_r     = dest_buf->data;
+
+    if(esp_ptr_external_ram(dest_buf->data) &&
+       !lv_draw_ppa_buf_cache_aligned(dest_buf->data)) {
+        aligned_out_r = (uint8_t *)heap_caps_aligned_alloc(
+            PPA_CACHE_LINE_SIZE, aligned_size_r,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if(!aligned_out_r) {
+            LV_LOG_ERROR("PPA SRM rotate: aligned alloc failed");
+            lv_image_decoder_close(&decoder_dsc);
+            return;
+        }
+        memcpy(aligned_out_r, dest_buf->data, raw_bytes_r);
+        esp_cache_msync(aligned_out_r, aligned_size_r,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+        out_ptr_r = aligned_out_r;
+    }
+
+    cfg.out.buffer         = out_ptr_r;
+    cfg.out.buffer_size    = aligned_size_r;
     cfg.out.pic_w          = dest_buf->header.w;
     cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
@@ -364,6 +416,15 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     esp_err_t ret = ppa_do_scale_rotate_mirror(u->srm_client, &cfg);
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM rotation failed: %d  (src %ux%u, angle %d)", (int)ret, src_w, src_h, angle);
+    }
+
+    if(aligned_out_r) {
+        if(ret == ESP_OK) {
+            esp_cache_msync(aligned_out_r, aligned_size_r,
+                            ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+            memcpy(dest_buf->data, aligned_out_r, raw_bytes_r);
+        }
+        heap_caps_free(aligned_out_r);
     }
 
     lv_image_decoder_close(&decoder_dsc);
