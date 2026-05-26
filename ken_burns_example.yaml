@@ -122,11 +122,11 @@ globals:
     initial_value: "242"    # 8000 ms / 33 ms ≈ 242
 
   # FPS counters
-  - id: fps_count
+  - id: kb_fps_count
     type: int
     restore_value: no
     initial_value: "0"
-  - id: last_fps
+  - id: kb_last_fps
     type: int
     restore_value: no
     initial_value: "0"
@@ -177,7 +177,7 @@ interval:
           lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
           lv_image_set_pivot(id(lv_kb_image), (lv_coord_t)pivot_x, (lv_coord_t)pivot_y);
 
-          id(fps_count)++;
+          id(kb_fps_count)++;
 
           // Advance tick; switch phase at end
           tick++;
@@ -192,9 +192,9 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          id(last_fps) = id(fps_count);
-          id(fps_count) = 0;
-          lv_label_set_text_fmt(id(lv_fps_label), "FPS: %d  PPA SRM", id(last_fps));
+          id(kb_last_fps) = id(kb_fps_count);
+          id(kb_fps_count) = 0;
+          lv_label_set_text_fmt(id(lv_fps_label), "FPS: %d  PPA SRM", id(kb_last_fps));
 
 # =============================================================================
 # LVGL — PPA + PPA_IMG enabled for Ken Burns hardware acceleration
