@@ -169,9 +169,22 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     int32_t src_bx = (int32_t)(((float)t->area.x1 - virt_x) / sx);
     int32_t src_by = (int32_t)(((float)t->area.y1 - virt_y) / sy);
 
+    /* Destination in layer-buffer coordinates (needed before clamping) */
+    lv_area_t dest_area;
+    lv_area_copy(&dest_area, &t->area);
+    lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
+
     /* ceilf guarantees the source block covers the full destination tile (no seam gaps) */
     uint32_t src_bw = (uint32_t)ceilf((float)clip_w / sx);
     uint32_t src_bh = (uint32_t)ceilf((float)clip_h / sy);
+
+    /* PPA validates: offset + block*scale <= pic_size.  Clamp so scaled output fits. */
+    uint32_t avail_w = (uint32_t)(dest_buf->header.w - dest_area.x1);
+    uint32_t avail_h = (uint32_t)(dest_buf->header.h - dest_area.y1);
+    uint32_t max_src_bw = (uint32_t)floorf((float)avail_w / sx);
+    uint32_t max_src_bh = (uint32_t)floorf((float)avail_h / sy);
+    if(src_bw > max_src_bw) src_bw = max_src_bw;
+    if(src_bh > max_src_bh) src_bh = max_src_bh;
 
     if(src_bx < 0 || src_by < 0 ||
        (uint32_t)src_bx >= src_w || (uint32_t)src_by >= src_h) {
@@ -184,11 +197,6 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
         lv_image_decoder_close(&decoder_dsc);
         return;
     }
-
-    /* Destination in layer-buffer coordinates */
-    lv_area_t dest_area;
-    lv_area_copy(&dest_area, &t->area);
-    lv_area_move(&dest_area, -layer->buf_area.x1, -layer->buf_area.y1);
 
     if(decoded->data_size > 0) {
         esp_cache_msync((void *)decoded->data,
