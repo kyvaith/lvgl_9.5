@@ -4811,18 +4811,17 @@ lvgl:
         bg_color: 0x000000
         on_load:
           then:
-            - lambda: |-
-                /* Force-disable scroll/click on container and image via LVGL API.
-                 * YAML scrollable:false sets the flag but scroll propagation to the
-                 * page itself can bypass it — clear flags here to be sure. */
-                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_SCROLLABLE);
-                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE);
-                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_set_scroll_dir(id(lv_kb_container), LV_DIR_NONE);
             - lvgl.image.update:
                 id: lv_kb_image
                 src: space
+            - lambda: |-
+                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_set_scroll_dir(id(lv_kb_container), LV_DIR_NONE);
+                // Fixed pivot at (0,0) — pan is done via lv_obj_set_pos in the animation lambda
+                lv_image_set_pivot(id(lv_kb_image), 0, 0);
+                // Initial centered position at scale 1.0
+                lv_obj_set_pos(id(lv_kb_image), (1024 - 1280) / 2, (600 - 720) / 2);
         widgets:
           - obj:
               id: lv_kb_container
@@ -4846,9 +4845,6 @@ lvgl:
                     id: lv_kb_image
                     src: space
                     align: CENTER
-                    scale: 1.0
-                    pivot_x: 540        # cx - pan_range_x/2
-                    pivot_y: 315        # cy - pan_range_y/2
                     clickable: false
   
           # HUD overlay (drawn on top of the Ken Burns layer)
@@ -7027,44 +7023,52 @@ interval:
           int tick  = id(kb_tick);
           int phase = id(kb_phase);
 
-          // Normalised progress t ∈ [0, 1]
           float t_lin = (float)tick / (float)(total - 1);
-
-          // Ease-in-out: smoothstep(t) = 3t² - 2t³
           float t = t_lin * t_lin * (3.0f - 2.0f * t_lin);
 
           const int zoom_a = ${zoom_start};
           const int zoom_b = ${zoom_end};
           int scale_val;
-          int pivot_x, pivot_y;
+          float pan_t;
 
-          // Image center (1280×720) ± pan range from substitutions
-          const int cx = 640, cy = 360;
-          const int pan_x = ${pan_range_x};
-          const int pan_y = ${pan_range_y};
-          const int px0 = cx - pan_x / 2;   // 540
-          const int py0 = cy - pan_y / 2;   // 315
-          const int px1 = cx + pan_x / 2;   // 740
-          const int py1 = cy + pan_y / 2;   // 405
-
+          // Phase 0: zoom in + pan left→right
+          // Phase 1: zoom out + pan right→left
           if(phase == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
-              pivot_x   = (int)(px0 + (px1 - px0) * t);
-              pivot_y   = (int)(py0 + (py1 - py0) * t);
+              pan_t = t;
           } else {
               scale_val = (int)(zoom_b + (zoom_a - zoom_b) * t);
-              pivot_x   = (int)(px1 + (px0 - px1) * t);
-              pivot_y   = (int)(py1 + (py0 - py1) * t);
+              pan_t = 1.0f - t;
           }
 
-          // Apply to LVGL image widget — pivot FIRST, then scale
-          // (évite une frame intermédiaire avec ancien pivot + nouveau zoom)
-          lv_image_set_pivot(id(lv_kb_image), (lv_coord_t)pivot_x, (lv_coord_t)pivot_y);
+          float s = (float)scale_val / 256.0f;
+
+          // Safe pan range at current scale (image 1280×720, screen 1024×600)
+          float max_dx = (1280.0f * s - 1024.0f) / 2.0f;
+          float max_dy = (720.0f * s - 600.0f) / 2.0f;
+          if(max_dx < 0.0f) max_dx = 0.0f;
+          if(max_dy < 0.0f) max_dy = 0.0f;
+
+          // Desired pan: -pan_range/2 → +pan_range/2
+          float dx = (2.0f * pan_t - 1.0f) * (float)(${pan_range_x}) / 2.0f;
+          float dy = (2.0f * pan_t - 1.0f) * (float)(${pan_range_y}) / 2.0f;
+
+          // Clamp to safe range so image always covers screen
+          if(dx >  max_dx) dx =  max_dx;
+          if(dx < -max_dx) dx = -max_dx;
+          if(dy >  max_dy) dy =  max_dy;
+          if(dy < -max_dy) dy = -max_dy;
+
+          // Position: center the scaled image + pan offset
+          // Pivot (0,0): image extends from pos to pos + size*s
+          int pos_x = (int)((1024.0f - 1280.0f * s) / 2.0f + dx);
+          int pos_y = (int)((600.0f  -  720.0f * s) / 2.0f + dy);
+
           lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
+          lv_obj_set_pos(id(lv_kb_image), pos_x, pos_y);
 
           id(kb_fps_count)++;
 
-          // Advance tick; switch phase at end
           tick++;
           if(tick >= total) {
               tick  = 0;
