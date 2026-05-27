@@ -4824,6 +4824,8 @@ lvgl:
               pad_all: 0
               clip_corner: true
               overflow_visible: false
+              scrollable: false
+              scroll_dir: NONE
   
               widgets:
                 # Ken Burns image widget (source: 1280×800)
@@ -7046,9 +7048,10 @@ interval:
               pivot_y   = (int)(py1 + (py0 - py1) * t);
           }
 
-          // Apply to LVGL image widget
-          lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
+          // Apply to LVGL image widget — pivot FIRST, then scale
+          // (évite une frame intermédiaire avec ancien pivot + nouveau zoom)
           lv_image_set_pivot(id(lv_kb_image), (lv_coord_t)pivot_x, (lv_coord_t)pivot_y);
+          lv_image_set_scale(id(lv_kb_image), (uint32_t)scale_val);
 
           id(kb_fps_count)++;
 
