@@ -270,8 +270,12 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     }
 
     /* PPA floorf rounding leaves a 1-pixel gap at right/bottom edges.
-     * Fill it by duplicating the last rendered column/row (invisible). */
-    if(ret == ESP_OK) {
+     * Fill it by duplicating the last rendered column/row. Invalidate CPU
+     * cache first: PPA wrote via DMA, so CPU cache can be stale. */
+    if(ret == ESP_OK && (gap_right || gap_bottom)) {
+        esp_cache_msync(out_ptr, aligned_size,
+                        ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+
         uint8_t *base = out_ptr;
         uint32_t stride = dest_buf->header.w * out_bpp;
 
@@ -291,6 +295,9 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
                       base + row_prev * stride + dest_area.x1 * out_bpp,
                       (uint32_t)clip_w * out_bpp);
         }
+
+        esp_cache_msync(out_ptr, aligned_size,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
     }
 
     if(aligned_out) {
