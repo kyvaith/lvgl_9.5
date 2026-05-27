@@ -194,14 +194,19 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     int32_t src_bx = (int32_t)(((float)visible_area.x1 - virt_x) / sx);
     int32_t src_by = (int32_t)(((float)visible_area.y1 - virt_y) / sy);
 
-    /* ceilf covers the full tile to avoid 1-pixel black gaps at right/bottom */
+    /* ceilf gives the ideal source block; floorf clamp keeps PPA happy.
+     * The PPA may render 1 pixel short — we fix that after the call. */
     uint32_t src_bw = (uint32_t)ceilf((float)clip_w / sx);
     uint32_t src_bh = (uint32_t)ceilf((float)clip_h / sy);
 
-    /* No floorf clamp — the old floorf(avail/scale) produced blocks 1 pixel
-     * too small (e.g. 829*1.234=1023 instead of 1024), leaving black edges.
-     * We keep ceilf for src_bw and only clamp to source image bounds below.
-     * The output pic_w/pic_h are bumped by +1 so PPA accepts the block. */
+    uint32_t avail_w = (uint32_t)(dest_buf->header.w - dest_area.x1);
+    uint32_t avail_h = (uint32_t)(dest_buf->header.h - dest_area.y1);
+    uint32_t max_src_bw = (uint32_t)floorf((float)avail_w / sx);
+    uint32_t max_src_bh = (uint32_t)floorf((float)avail_h / sy);
+    bool gap_right  = (src_bw > max_src_bw);
+    bool gap_bottom = (src_bh > max_src_bh);
+    if(src_bw > max_src_bw) src_bw = max_src_bw;
+    if(src_bh > max_src_bh) src_bh = max_src_bh;
 
     if(src_bx < 0 || src_by < 0 ||
        (uint32_t)src_bx >= src_w || (uint32_t)src_by >= src_h) {
@@ -215,27 +220,16 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
         return;
     }
 
-    /* --- PPA SRM DEBUG: source/dest mapping --- */
-    {
-        static uint32_t srm_blk = 0;
-        if(srm_blk % 100 == 0) {
-            LV_LOG_USER("PPA_SRM src_blk=(%d,%d %ux%u) dest=(%d,%d) clip=%dx%d "
-                        "vis=[%d,%d->%d,%d] dbuf=%dx%d",
-                        (int)src_bx, (int)src_by, src_bw, src_bh,
-                        (int)dest_area.x1, (int)dest_area.y1,
-                        clip_w, clip_h,
-                        (int)visible_area.x1, (int)visible_area.y1,
-                        (int)visible_area.x2, (int)visible_area.y2,
-                        (int)dest_buf->header.w, (int)dest_buf->header.h);
-        }
-        srm_blk++;
-    }
-
     if(decoded->data_size > 0) {
         esp_cache_msync((void *)decoded->data,
                         lv_draw_ppa_align_size(decoded->data_size),
                         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
+
+    uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
+                       (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
+    uint32_t raw_bytes    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp;
+    uint32_t aligned_size = lv_draw_ppa_align_size(raw_bytes);
 
     ppa_srm_oper_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
@@ -249,18 +243,10 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.block_offset_y = (uint32_t)src_by;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
-    uint32_t out_bpp = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
-                       (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
-    uint32_t raw_bytes    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp;
-    uint32_t aligned_size = lv_draw_ppa_align_size(raw_bytes);
-
-    /* Draw buffers are cache-aligned so there is padding at the end.
-     * Bump pic_w/pic_h by 1 so PPA accepts ceilf-sized source blocks
-     * (the extra output pixel falls into alignment padding). */
     cfg.out.buffer         = dest_buf->data;
     cfg.out.buffer_size    = aligned_size;
-    cfg.out.pic_w          = dest_buf->header.w + 1;
-    cfg.out.pic_h          = dest_buf->header.h + 1;
+    cfg.out.pic_w          = dest_buf->header.w;
+    cfg.out.pic_h          = dest_buf->header.h;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
     cfg.out.block_offset_y = (uint32_t)dest_area.y1;
     cfg.out.srm_cm         = lv_color_format_to_ppa_srm(dest_cf);
@@ -280,6 +266,30 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     if(ret != ESP_OK) {
         LV_LOG_ERROR("PPA SRM scale failed: %d (src %ux%u scale %.2f/%.2f)",
                      (int)ret, src_w, src_h, (double)sx, (double)sy);
+    }
+
+    /* PPA floorf rounding leaves a 1-pixel gap at right/bottom edges.
+     * Fill it by duplicating the last rendered column/row (invisible). */
+    if(ret == ESP_OK) {
+        uint8_t *base = dest_buf->data;
+        uint32_t stride = dest_buf->header.w * out_bpp;
+
+        if(gap_right && clip_w >= 2) {
+            uint32_t col = dest_area.x1 + (uint32_t)clip_w - 1;
+            uint32_t col_prev = col - 1;
+            for(int32_t y = 0; y < clip_h; y++) {
+                uint32_t row_off = (dest_area.y1 + (uint32_t)y) * stride;
+                lv_memcpy(base + row_off + col * out_bpp,
+                          base + row_off + col_prev * out_bpp, out_bpp);
+            }
+        }
+        if(gap_bottom && clip_h >= 2) {
+            uint32_t row = dest_area.y1 + (uint32_t)clip_h - 1;
+            uint32_t row_prev = row - 1;
+            lv_memcpy(base + row * stride + dest_area.x1 * out_bpp,
+                      base + row_prev * stride + dest_area.x1 * out_bpp,
+                      (uint32_t)clip_w * out_bpp);
+        }
     }
 
     lv_image_decoder_close(&decoder_dsc);
