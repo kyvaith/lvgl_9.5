@@ -4828,17 +4828,16 @@ lvgl:
               scroll_dir: NONE
   
               widgets:
-                # Ken Burns image widget (source: 1280×800)
+                # Ken Burns image widget (source: 1280×720)
                 # LVGL clips the visible 1024×600 area; PPA SRM renders only
                 # the visible source block — no wasted memory bandwidth.
                 - image:
                     id: lv_kb_image
                     src: space
                     align: CENTER
-                    # Initial state: no zoom, pivot at image center (1280/2, 800/2)
-                    scale: 1.0          # 1.0 = 100% ; lambdas utilisent lv_image_set_scale() en entiers LVGL
-                    pivot_x: 520        # pivot initial = px0 (phase 0 départ)
-                    pivot_y: 310        # pivot initial = py0 (phase 0 départ)
+                    scale: 1.0
+                    pivot_x: 520        # = px0
+                    pivot_y: 305        # = py0
   
           # HUD overlay (drawn on top of the Ken Burns layer)
           - obj:
@@ -7032,11 +7031,11 @@ interval:
 
           // Phase 0: zoom in, pan upper-left → center
           // Phase 1: zoom out, pan center → lower-right (reversed)
-          // Bornes valides pour image 1280×800 sur écran 1024×600 :
-          //   s=1.00 → px∈[512,768] py∈[300,500]
-          //   s=1.40 → px∈[366,914] py∈[215,585]
-          const int px0 = 520, py0 = 310;   // start pivot : haut-gauche (s=1.0)
-          const int px1 = 900, py1 = 565;   // end pivot   : bas-droite  (s=1.4)
+          // Bornes valides pour image 1280×720 sur écran 1024×600 :
+          //   s=1.00 → px∈[512,768] py∈[300,420]
+          //   s=1.40 → px∈[366,914] py∈[215,505]
+          const int px0 = 520, py0 = 305;   // start pivot : haut-gauche (s=1.0)
+          const int px1 = 900, py1 = 500;   // end pivot   : bas-droite  (s=1.4)
 
           if(phase == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
