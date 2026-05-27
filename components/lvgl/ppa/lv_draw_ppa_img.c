@@ -176,16 +176,14 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     int32_t src_bx = (int32_t)(((float)visible_area.x1 - virt_x) / sx);
     int32_t src_by = (int32_t)(((float)visible_area.y1 - virt_y) / sy);
 
-    /* ceilf covers the full tile; floorf clamp prevents PPA check-1 overflow */
+    /* ceilf covers the full tile to avoid 1-pixel black gaps at right/bottom */
     uint32_t src_bw = (uint32_t)ceilf((float)clip_w / sx);
     uint32_t src_bh = (uint32_t)ceilf((float)clip_h / sy);
 
-    uint32_t avail_w = (uint32_t)(dest_buf->header.w - dest_area.x1);
-    uint32_t avail_h = (uint32_t)(dest_buf->header.h - dest_area.y1);
-    uint32_t max_src_bw = (uint32_t)floorf((float)avail_w / sx);
-    uint32_t max_src_bh = (uint32_t)floorf((float)avail_h / sy);
-    if(src_bw > max_src_bw) src_bw = max_src_bw;
-    if(src_bh > max_src_bh) src_bh = max_src_bh;
+    /* No floorf clamp — the old floorf(avail/scale) produced blocks 1 pixel
+     * too small (e.g. 829*1.234=1023 instead of 1024), leaving black edges.
+     * We keep ceilf for src_bw and only clamp to source image bounds below.
+     * The output pic_w/pic_h are bumped by +1 so PPA accepts the block. */
 
     if(src_bx < 0 || src_by < 0 ||
        (uint32_t)src_bx >= src_w || (uint32_t)src_by >= src_h) {
@@ -241,10 +239,13 @@ void lv_draw_ppa_img_srm(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
         out_ptr = aligned_out;
     }
 
+    /* Bump pic_w/pic_h by 1 so PPA accepts ceilf-sized source blocks.
+     * If ESPHome gave us an unaligned PSRAM buffer, out_ptr points to a
+     * cache-line-aligned staging buffer instead of the original draw buffer. */
     cfg.out.buffer         = out_ptr;
     cfg.out.buffer_size    = aligned_size;
-    cfg.out.pic_w          = dest_buf->header.w;
-    cfg.out.pic_h          = dest_buf->header.h;
+    cfg.out.pic_w          = dest_buf->header.w + 1;
+    cfg.out.pic_h          = dest_buf->header.h + 1;
     cfg.out.block_offset_x = (uint32_t)dest_area.x1;
     cfg.out.block_offset_y = (uint32_t)dest_area.y1;
     cfg.out.srm_cm         = lv_color_format_to_ppa_srm(dest_cf);
