@@ -1750,25 +1750,22 @@ switch:
     restore_mode: ALWAYS_OFF 
 
 globals:
- 
+
   - id: kb_phase
     type: int
     restore_value: no
     initial_value: "0"
 
-  # Tick counter within the current phase (0 … kb_ticks_total-1)
   - id: kb_tick
     type: int
     restore_value: no
     initial_value: "0"
 
-  # Total ticks per phase at 33 ms interval
   - id: kb_ticks_total
     type: int
     restore_value: no
     initial_value: "606"    # 20000 ms / 33 ms ≈ 606
 
-  # FPS counters
   - id: kb_fps_count
     type: int
     restore_value: no
@@ -1777,6 +1774,23 @@ globals:
     type: int
     restore_value: no
     initial_value: "0"
+
+  - id: kb_from_x
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: kb_from_y
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+  - id: kb_to_x
+    type: float
+    restore_value: no
+    initial_value: "80.0"
+  - id: kb_to_y
+    type: float
+    restore_value: no
+    initial_value: "35.0"
 
 
   - id: va_is_listening
@@ -7028,39 +7042,32 @@ interval:
 
           const int zoom_a = ${zoom_start};
           const int zoom_b = ${zoom_end};
-          int scale_val;
-          float pan_t;
 
-          // Phase 0: zoom in + pan left→right
-          // Phase 1: zoom out + pan right→left
-          if(phase == 0) {
+          // Alternate zoom direction: even=in, odd=out
+          int scale_val;
+          if(phase % 2 == 0) {
               scale_val = (int)(zoom_a + (zoom_b - zoom_a) * t);
-              pan_t = t;
           } else {
               scale_val = (int)(zoom_b + (zoom_a - zoom_b) * t);
-              pan_t = 1.0f - t;
           }
 
           float s = (float)scale_val / 256.0f;
 
-          // Safe pan range at current scale (image 1280×720, screen 1024×600)
+          // Interpolate pan from saved start → saved end
+          float dx = id(kb_from_x) + (id(kb_to_x) - id(kb_from_x)) * t;
+          float dy = id(kb_from_y) + (id(kb_to_y) - id(kb_from_y)) * t;
+
+          // Clamp to safe range at current scale (image 1280×720, screen 1024×600)
           float max_dx = (1280.0f * s - 1024.0f) / 2.0f;
-          float max_dy = (720.0f * s - 600.0f) / 2.0f;
+          float max_dy = (720.0f  * s -  600.0f) / 2.0f;
           if(max_dx < 0.0f) max_dx = 0.0f;
           if(max_dy < 0.0f) max_dy = 0.0f;
-
-          // Desired pan: -pan_range/2 → +pan_range/2
-          float dx = (2.0f * pan_t - 1.0f) * (float)(${pan_range_x}) / 2.0f;
-          float dy = (2.0f * pan_t - 1.0f) * (float)(${pan_range_y}) / 2.0f;
-
-          // Clamp to safe range so image always covers screen
           if(dx >  max_dx) dx =  max_dx;
           if(dx < -max_dx) dx = -max_dx;
           if(dy >  max_dy) dy =  max_dy;
           if(dy < -max_dy) dy = -max_dy;
 
-          // Position: center the scaled image + pan offset
-          // Pivot (0,0): image extends from pos to pos + size*s
+          // Position = centered scaled image + pan offset
           int pos_x = (int)((1024.0f - 1280.0f * s) / 2.0f + dx);
           int pos_y = (int)((600.0f  -  720.0f * s) / 2.0f + dy);
 
@@ -7071,9 +7078,30 @@ interval:
 
           tick++;
           if(tick >= total) {
-              tick  = 0;
-              phase = 1 - phase;
+              tick = 0;
+
+              // End position becomes next start (seamless, no jump)
+              id(kb_from_x) = dx;
+              id(kb_from_y) = dy;
+
+              // Next phase = opposite zoom direction
+              phase = (phase + 1) % 2;
               id(kb_phase) = phase;
+
+              // Safe bounds at END of next phase
+              float end_s = (phase % 2 == 0)
+                  ? (float)zoom_b / 256.0f
+                  : (float)zoom_a / 256.0f;
+              float end_mx = (1280.0f * end_s - 1024.0f) / 2.0f;
+              float end_my = (720.0f  * end_s -  600.0f) / 2.0f;
+              if(end_mx < 0.0f) end_mx = 0.0f;
+              if(end_my < 0.0f) end_my = 0.0f;
+
+              // Random target within 75% of safe bounds
+              float rx = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
+              float ry = ((float)((int)(esp_random() % 2001u) - 1000)) / 1000.0f;
+              id(kb_to_x) = rx * end_mx * 0.75f;
+              id(kb_to_y) = ry * end_my * 0.75f;
           }
           id(kb_tick) = tick;
 
