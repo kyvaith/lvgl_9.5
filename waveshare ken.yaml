@@ -4815,12 +4815,12 @@ lvgl:
                 id: lv_kb_image
                 src: space
             - lambda: |-
-                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(id(lv_kb_container), LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(id(lv_kb_image),     LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_set_scroll_dir(id(lv_kb_container), LV_DIR_NONE);
-                // Fixed pivot at (0,0) — pan is done via lv_obj_set_pos in the animation lambda
                 lv_image_set_pivot(id(lv_kb_image), 0, 0);
-                // Initial centered position at scale 1.0
                 lv_obj_set_pos(id(lv_kb_image), (1024 - 1280) / 2, (600 - 720) / 2);
         widgets:
           - obj:
