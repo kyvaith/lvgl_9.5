@@ -87,35 +87,49 @@ for lvgl_file, use_names in _LVGL_WIDGET_FILES.items():
 # QR code is in libs/qrcode/, not widgets/
 _qrcode_needed = "qrcode" in _used_widgets
 
+# Lottie requires LVGL canvas and image internally.
+# The build filter sees only widgets explicitly used in YAML, so using
+# lottie does not automatically keep lv_canvas.c unless we add it here.
+if "lottie" in _used_widgets:
+    _needed_widget_files.add("canvas")
+    _needed_widget_files.add("image")
 
 def lvgl_src_filter(env, node):
     """Skip compilation of LVGL source files not needed for ESP32."""
     path = str(node.get_path()).replace("\\", "/")
 
-    # ESP-IDF/FreeRTOS atomic include fix.
-    # LVGL 9.x osal/lv_freertos.c includes "atomic.h".
-    # In PlatformIO this file is compiled from .piolibdeps/lvgl, so the
-    # external component shim atomic.h is not always visible via -I.
-    # Patch the source directly to use ESP-IDF's native FreeRTOS atomic header.
+    # ESP-IDF / FreeRTOS atomic.h fix for LVGL compiled from .piolibdeps.
+    #
+    # lv_freertos.c contains:
+    #   #include "atomic.h"
+    #
+    # The shim atomic.h from the external component is not reliably visible
+    # when PlatformIO compiles LVGL as a library from .piolibdeps.
+    #
+    # Put atomic.h directly next to lv_freertos.c so quoted include resolution
+    # always finds it first.
     if path.endswith("/osal/lv_freertos.c"):
         try:
             from pathlib import Path
 
-            freertos_path = Path(node.get_path())
-            text = freertos_path.read_text(encoding="utf-8")
+            src = Path(node.get_path())
+            shim = src.parent / "atomic.h"
 
-            old = '#include "atomic.h"'
-            new = '''#if defined(ESP_PLATFORM)
+            shim_text = """#pragma once
+
+#if defined(ESP_PLATFORM)
 #include "freertos/atomic.h"
 #else
-#include "atomic.h"
-#endif'''
+#error "This atomic.h shim is intended for ESP-IDF / FreeRTOS builds only."
+#endif
+"""
 
-            if old in text and "freertos/atomic.h" not in text:
-                freertos_path.write_text(text.replace(old, new), encoding="utf-8")
-                print("Patched LVGL lv_freertos.c atomic include:", freertos_path)
+            if not shim.exists() or shim.read_text(encoding="utf-8", errors="ignore") != shim_text:
+                shim.write_text(shim_text, encoding="utf-8")
+                print("Created LVGL osal atomic.h shim:", shim)
+
         except Exception as err:
-            print("WARNING: failed to patch LVGL lv_freertos.c atomic include:", err)
+            print("WARNING: failed to create LVGL osal atomic.h shim:", err)
   
     # Only filter files inside the LVGL library
     if "/lvgl/" not in path:
