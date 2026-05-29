@@ -11,8 +11,39 @@ Communication from ESPHome (__init__.py) via build flags:
   -DLVGL_WIDGETS_USED="..."  → comma-separated list of used widget/feature names
 """
 import re
+from pathlib import Path
 
 Import("env")
+
+ATOMIC_SHIM_TEXT = """#pragma once
+
+#if defined(ESP_PLATFORM)
+#include "freertos/atomic.h"
+#else
+#error "This atomic.h shim is intended for ESP-IDF / FreeRTOS builds only."
+#endif
+"""
+
+
+def write_atomic_shim(shim):
+    shim = Path(shim)
+    shim.parent.mkdir(parents=True, exist_ok=True)
+    if (
+        not shim.exists()
+        or shim.read_text(encoding="utf-8", errors="ignore") != ATOMIC_SHIM_TEXT
+    ):
+        shim.write_text(ATOMIC_SHIM_TEXT, encoding="utf-8")
+        print("Created LVGL osal atomic.h shim:", shim)
+
+
+def create_piolibdeps_atomic_shim():
+    libdeps_dir = env.subst("$PROJECT_LIBDEPS_DIR")
+    pioenv = env.subst("$PIOENV")
+    if libdeps_dir and pioenv:
+        write_atomic_shim(Path(libdeps_dir) / pioenv / "lvgl" / "src" / "osal" / "atomic.h")
+
+
+create_piolibdeps_atomic_shim()
 
 # Parse build flags from ESPHome's __init__.py
 _build_flags = " ".join(env.get("BUILD_FLAGS", []))
@@ -110,23 +141,8 @@ def lvgl_src_filter(env, node):
     # always finds it first.
     if path.endswith("/osal/lv_freertos.c"):
         try:
-            from pathlib import Path
-
             src = Path(node.get_path())
-            shim = src.parent / "atomic.h"
-
-            shim_text = """#pragma once
-
-#if defined(ESP_PLATFORM)
-#include "freertos/atomic.h"
-#else
-#error "This atomic.h shim is intended for ESP-IDF / FreeRTOS builds only."
-#endif
-"""
-
-            if not shim.exists() or shim.read_text(encoding="utf-8", errors="ignore") != shim_text:
-                shim.write_text(shim_text, encoding="utf-8")
-                print("Created LVGL osal atomic.h shim:", shim)
+            write_atomic_shim(src.parent / "atomic.h")
 
         except Exception as err:
             print("WARNING: failed to create LVGL osal atomic.h shim:", err)
