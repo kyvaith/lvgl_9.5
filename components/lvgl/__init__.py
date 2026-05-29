@@ -273,7 +273,7 @@ async def to_code(configs):
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
         cg.add_define("USE_LVGL_PPA")
         ppa_dir = Path(__file__).parent / "ppa"
-        cg.add_build_flag(f"-I{ppa_dir}")
+        cg.add_build_flag(f"-I{ppa_dir.as_posix()}")
     if use_ppa_img:
         # Enable PPA SRM hardware rotation for images (0/90/180/270 degrees)
         cg.add_define("LV_USE_PPA_IMG")
