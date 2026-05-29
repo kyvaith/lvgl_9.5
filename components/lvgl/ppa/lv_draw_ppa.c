@@ -61,11 +61,11 @@ void lv_draw_ppa_init(void)
         ESP_LOGE(TAG, "Failed to register SRM client: %d", res);
     }
 
-    /* Register Fill client - 128-byte burst for max throughput on small fills */
+    /* Register Fill client - 64-byte burst to reduce DSI underruns under UI load */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_FILL;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
+    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->fill_client);
     if(res != ESP_OK) {
