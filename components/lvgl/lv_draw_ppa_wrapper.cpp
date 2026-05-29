@@ -10,11 +10,11 @@
 #ifdef USE_LVGL_PPA
 
 extern "C" {
-#include "ppa/lv_draw_ppa.c"
-#include "ppa/lv_draw_ppa_fill.c"
-#include "ppa/lv_draw_ppa_img.c"
-#include "ppa/lv_draw_ppa_buf.c"
-#include "ppa/lvgl_ppa_accel_v9.c"
+#include "lv_draw_ppa.c"
+#include "lv_draw_ppa_fill.c"
+#include "lv_draw_ppa_img.c"
+#include "lv_draw_ppa_buf.c"
+#include "lvgl_ppa_accel_v9.c"
 }
 
 #endif /* USE_LVGL_PPA */
