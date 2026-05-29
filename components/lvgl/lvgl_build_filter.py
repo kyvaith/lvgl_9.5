@@ -92,6 +92,31 @@ def lvgl_src_filter(env, node):
     """Skip compilation of LVGL source files not needed for ESP32."""
     path = str(node.get_path()).replace("\\", "/")
 
+    # ESP-IDF/FreeRTOS atomic include fix.
+    # LVGL 9.x osal/lv_freertos.c includes "atomic.h".
+    # In PlatformIO this file is compiled from .piolibdeps/lvgl, so the
+    # external component shim atomic.h is not always visible via -I.
+    # Patch the source directly to use ESP-IDF's native FreeRTOS atomic header.
+    if path.endswith("/osal/lv_freertos.c"):
+        try:
+            from pathlib import Path
+
+            freertos_path = Path(node.get_path())
+            text = freertos_path.read_text(encoding="utf-8")
+
+            old = '#include "atomic.h"'
+            new = '''#if defined(ESP_PLATFORM)
+#include "freertos/atomic.h"
+#else
+#include "atomic.h"
+#endif'''
+
+            if old in text and "freertos/atomic.h" not in text:
+                freertos_path.write_text(text.replace(old, new), encoding="utf-8")
+                print("Patched LVGL lv_freertos.c atomic include:", freertos_path)
+        except Exception as err:
+            print("WARNING: failed to patch LVGL lv_freertos.c atomic include:", err)
+  
     # Only filter files inside the LVGL library
     if "/lvgl/" not in path:
         return node
