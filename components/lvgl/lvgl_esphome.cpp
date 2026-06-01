@@ -1183,12 +1183,17 @@ void lv_animimg_stop(lv_obj_t *obj) {
 
 namespace {
 struct SnapshotSwipeState {
+  lv_obj_t *current_root{nullptr};
+  lv_obj_t *next_root{nullptr};
   lv_obj_t *current_img{nullptr};
   lv_obj_t *next_img{nullptr};
   lv_draw_buf_t *current_buf{nullptr};
   lv_draw_buf_t *next_buf{nullptr};
   bool owns_current_buf{false};
   bool owns_next_buf{false};
+  int finish_current_x{0};
+  int finish_next_x{0};
+  bool commit{false};
 };
 
 struct SnapshotCacheEntry {
@@ -1249,8 +1254,13 @@ void snapshot_swipe_cleanup() {
       lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
     snapshot_swipe_state.next_buf = nullptr;
   }
+  snapshot_swipe_state.current_root = nullptr;
+  snapshot_swipe_state.next_root = nullptr;
   snapshot_swipe_state.owns_current_buf = false;
   snapshot_swipe_state.owns_next_buf = false;
+  snapshot_swipe_state.finish_current_x = 0;
+  snapshot_swipe_state.finish_next_x = 0;
+  snapshot_swipe_state.commit = false;
 }
 
 void snapshot_swipe_align(lv_obj_t *obj, int x) {
@@ -1260,7 +1270,24 @@ void snapshot_swipe_align(lv_obj_t *obj, int x) {
 
 void snapshot_swipe_anim_x(void *obj, int32_t x) { snapshot_swipe_align(static_cast<lv_obj_t *>(obj), x); }
 
+void snapshot_swipe_apply_final_roots() {
+  if (snapshot_swipe_state.current_root == nullptr || snapshot_swipe_state.next_root == nullptr)
+    return;
+  if (snapshot_swipe_state.commit) {
+    lv_obj_align(snapshot_swipe_state.current_root, LV_ALIGN_CENTER, snapshot_swipe_state.finish_current_x, 0);
+    lv_obj_align(snapshot_swipe_state.next_root, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(snapshot_swipe_state.current_root, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(snapshot_swipe_state.next_root, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_align(snapshot_swipe_state.current_root, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(snapshot_swipe_state.next_root, LV_ALIGN_CENTER, snapshot_swipe_state.finish_next_x, 0);
+    lv_obj_clear_flag(snapshot_swipe_state.current_root, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(snapshot_swipe_state.next_root, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
+  snapshot_swipe_apply_final_roots();
   snapshot_swipe_cleanup();
   lv_obj_invalidate(lv_screen_active());
 }
@@ -1304,6 +1331,8 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   auto *parent = lv_obj_get_parent(current);
   if (parent == nullptr)
     return false;
+  snapshot_swipe_state.current_root = current;
+  snapshot_swipe_state.next_root = next;
 
   lv_obj_clear_flag(current, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
@@ -1360,14 +1389,18 @@ extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
   snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
 }
 
-extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms) {
+extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms, bool commit) {
   if (snapshot_swipe_state.current_img == nullptr || snapshot_swipe_state.next_img == nullptr) {
     snapshot_swipe_cleanup();
     return;
   }
+  snapshot_swipe_state.finish_current_x = current_x;
+  snapshot_swipe_state.finish_next_x = next_x;
+  snapshot_swipe_state.commit = commit;
   if (duration_ms == 0) {
     snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
     snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+    snapshot_swipe_apply_final_roots();
     snapshot_swipe_cleanup();
     lv_obj_invalidate(lv_screen_active());
     return;
