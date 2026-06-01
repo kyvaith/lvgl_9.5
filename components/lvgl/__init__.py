@@ -262,7 +262,6 @@ async def to_code(configs):
     # stricter alignment. The custom lv_malloc_core() already provides 64-byte
     # aligned heap allocations for the actual draw buffers on ESP32.
     df.add_define("LV_DRAW_BUF_ALIGN", "4")
-    df.add_define("LV_ATTRIBUTE_FAST_MEM", "IRAM_ATTR")
     use_ppa = config_0.get(CONF_USE_PPA, False)
     use_ppa_img = config_0.get(CONF_USE_PPA_IMG, False)
     # use_ppa_img implies use_ppa (SRM client needs PPA init)
