@@ -1185,10 +1185,48 @@ struct SnapshotSwipeState {
   lv_obj_t *next_img{nullptr};
   lv_draw_buf_t *current_buf{nullptr};
   lv_draw_buf_t *next_buf{nullptr};
+  bool owns_current_buf{false};
+  bool owns_next_buf{false};
+};
+
+struct SnapshotCacheEntry {
+  lv_obj_t *obj{nullptr};
+  lv_draw_buf_t *buf{nullptr};
 };
 
 SnapshotSwipeState snapshot_swipe_state;
 lv_timer_t *snapshot_swipe_cleanup_timer{nullptr};
+SnapshotCacheEntry snapshot_cache[4];
+
+constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
+
+lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
+  for (auto &entry : snapshot_cache) {
+    if (entry.obj == obj)
+      return entry.buf;
+  }
+  return nullptr;
+}
+
+void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
+  SnapshotCacheEntry *slot = nullptr;
+  for (auto &entry : snapshot_cache) {
+    if (entry.obj == obj) {
+      if (entry.buf != nullptr)
+        lv_draw_buf_destroy(entry.buf);
+      entry.buf = buf;
+      return;
+    }
+    if (slot == nullptr && entry.obj == nullptr)
+      slot = &entry;
+  }
+  if (slot == nullptr)
+    slot = &snapshot_cache[0];
+  if (slot->buf != nullptr)
+    lv_draw_buf_destroy(slot->buf);
+  slot->obj = obj;
+  slot->buf = buf;
+}
 
 void snapshot_swipe_cleanup() {
   if (snapshot_swipe_cleanup_timer != nullptr) {
@@ -1204,13 +1242,17 @@ void snapshot_swipe_cleanup() {
     snapshot_swipe_state.next_img = nullptr;
   }
   if (snapshot_swipe_state.current_buf != nullptr) {
-    lv_draw_buf_destroy(snapshot_swipe_state.current_buf);
+    if (snapshot_swipe_state.owns_current_buf)
+      lv_draw_buf_destroy(snapshot_swipe_state.current_buf);
     snapshot_swipe_state.current_buf = nullptr;
   }
   if (snapshot_swipe_state.next_buf != nullptr) {
-    lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
+    if (snapshot_swipe_state.owns_next_buf)
+      lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
     snapshot_swipe_state.next_buf = nullptr;
   }
+  snapshot_swipe_state.owns_current_buf = false;
+  snapshot_swipe_state.owns_next_buf = false;
 }
 
 void snapshot_swipe_align(lv_obj_t *obj, int x) {
@@ -1226,6 +1268,34 @@ void snapshot_swipe_cleanup_timer_cb(lv_timer_t *timer) {
   snapshot_swipe_cleanup();
 }
 }  // namespace
+
+extern "C" bool lvgl_esphome_snapshot_cache_page(lv_obj_t *obj) {
+#if LV_USE_SNAPSHOT
+  if (obj == nullptr)
+    return false;
+  const bool was_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  const lv_coord_t old_x = lv_obj_get_x(obj);
+  const lv_coord_t old_y = lv_obj_get_y(obj);
+
+  lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align(obj, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_update_layout(lv_obj_get_parent(obj));
+
+  auto *buf = lv_snapshot_take(obj, SNAPSHOT_CF);
+  lv_obj_align(obj, LV_ALIGN_CENTER, old_x, old_y);
+  if (was_hidden)
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  if (buf == nullptr) {
+    ESP_LOGW(TAG, "snapshot cache: failed for obj=%p", obj);
+    return false;
+  }
+  snapshot_cache_store(obj, buf);
+  ESP_LOGD(TAG, "snapshot cache: stored obj=%p", obj);
+  return true;
+#else
+  return false;
+#endif
+}
 
 extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x) {
 #if LV_USE_SNAPSHOT
@@ -1243,13 +1313,16 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   lv_obj_align(next, LV_ALIGN_CENTER, next_x, 0);
   lv_obj_update_layout(parent);
 
-  // RGB565 is intentionally used even with a 24/32-bit panel. The snapshots
-  // are transient transition layers, and halving their size greatly reduces
-  // the visible hitch when the user begins a swipe.
-  constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
-
-  snapshot_swipe_state.current_buf = lv_snapshot_take(current, SNAPSHOT_CF);
-  snapshot_swipe_state.next_buf = lv_snapshot_take(next, SNAPSHOT_CF);
+  snapshot_swipe_state.current_buf = snapshot_cache_find(current);
+  snapshot_swipe_state.next_buf = snapshot_cache_find(next);
+  if (snapshot_swipe_state.current_buf == nullptr) {
+    snapshot_swipe_state.current_buf = lv_snapshot_take(current, SNAPSHOT_CF);
+    snapshot_swipe_state.owns_current_buf = true;
+  }
+  if (snapshot_swipe_state.next_buf == nullptr) {
+    snapshot_swipe_state.next_buf = lv_snapshot_take(next, SNAPSHOT_CF);
+    snapshot_swipe_state.owns_next_buf = true;
+  }
   if (snapshot_swipe_state.current_buf == nullptr || snapshot_swipe_state.next_buf == nullptr) {
     ESP_LOGW(TAG, "snapshot swipe: failed to create draw buffers");
     snapshot_swipe_cleanup();
