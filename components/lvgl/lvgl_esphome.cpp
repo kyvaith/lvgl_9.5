@@ -5,6 +5,8 @@
 #include "lvgl_esphome.h"
 
 #include "core/lv_obj_class_private.h"
+#include "display/lv_display_private.h"
+#include "misc/lv_ll.h"
 
 #ifdef USE_MIPI_DSI
 #include "esphome/components/mipi_dsi/mipi_dsi.h"
@@ -1786,6 +1788,15 @@ void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
   }
 }
 
+void snapshot_swipe_discard_pending_refresh(lv_display_t *disp) {
+  if (disp == nullptr)
+    return;
+  lv_memzero(disp->inv_areas, sizeof(disp->inv_areas));
+  lv_memzero(disp->inv_area_joined, sizeof(disp->inv_area_joined));
+  disp->inv_p = 0;
+  lv_ll_clear(&disp->sync_areas);
+}
+
 void snapshot_swipe_finish_now() {
   const bool direct_render = snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr;
   if (direct_render) {
@@ -1797,12 +1808,7 @@ void snapshot_swipe_finish_now() {
   }
   snapshot_swipe_apply_final_roots();
   if (direct_render) {
-    auto *component = snapshot_swipe_state.component;
-    s_snapshot_swipe_active = false;
-    s_snapshot_direct_active = false;
-    lv_obj_invalidate(lv_screen_active());
-    lv_refr_now(component->get_disp());
-    component->wait_for_direct_frame_presented(50);
+    snapshot_swipe_discard_pending_refresh(snapshot_swipe_state.component->get_disp());
     snapshot_swipe_cleanup();
     return;
   }
