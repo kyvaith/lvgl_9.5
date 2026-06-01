@@ -1205,7 +1205,7 @@ struct SnapshotCacheEntry {
 SnapshotSwipeState snapshot_swipe_state;
 SnapshotCacheEntry snapshot_cache[4];
 
-constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
+constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
