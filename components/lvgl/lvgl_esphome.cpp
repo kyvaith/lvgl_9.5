@@ -1376,6 +1376,7 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
     snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
     snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
     snapshot_swipe_cleanup();
+    lv_obj_invalidate(lv_screen_active());
     return;
   }
 
@@ -1399,7 +1400,10 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
   lv_timer_set_repeat_count(snapshot_swipe_cleanup_timer, 1);
 }
 
-extern "C" void lvgl_esphome_snapshot_swipe_end(void) { snapshot_swipe_cleanup(); }
+extern "C" void lvgl_esphome_snapshot_swipe_end(void) {
+  snapshot_swipe_cleanup();
+  lv_obj_invalidate(lv_screen_active());
+}
 
 void LvglComponent::static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   reinterpret_cast<LvglComponent *>(lv_display_get_user_data(disp_drv))->flush_cb_(disp_drv, area, color_p);
