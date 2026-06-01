@@ -1298,15 +1298,17 @@ void snapshot_swipe_apply_final_roots() {
 
 void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
   if (snapshot_swipe_state.cleanup_timer == nullptr) {
+    snapshot_swipe_apply_final_roots();
+    s_snapshot_swipe_active = false;
+    lv_obj_invalidate(lv_screen_active());
     snapshot_swipe_state.cleanup_timer = lv_timer_create(
         [](lv_timer_t *timer) {
           snapshot_swipe_state.cleanup_timer = nullptr;
-          snapshot_swipe_apply_final_roots();
           snapshot_swipe_cleanup();
           lv_obj_invalidate(lv_screen_active());
           lv_timer_delete(timer);
         },
-        1, nullptr);
+        48, nullptr);
   }
 }
 
