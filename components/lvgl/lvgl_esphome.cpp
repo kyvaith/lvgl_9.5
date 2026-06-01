@@ -6,6 +6,13 @@
 
 #include "core/lv_obj_class_private.h"
 
+#ifdef USE_MIPI_DSI
+#include "esphome/components/mipi_dsi/mipi_dsi.h"
+#endif
+#ifdef USE_ESP32
+#include "esp_cache.h"
+#endif
+
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
 #include "esp_timer.h"
@@ -517,7 +524,11 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
-    this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+    if (this->direct_mode_active_) {
+      this->sync_direct_area_(area);
+    } else {
+      this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+    }
     uint64_t dt = esp_timer_get_time() - t0;
     // Track flush wait time so loop() can subtract it when computing
     // CPU%% — the synchronous DMA push isn't real CPU work.
@@ -526,6 +537,41 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
              lv_area_get_height(area), (unsigned long long)dt);
   }
   lv_display_flush_ready(disp_drv);
+}
+
+void LvglComponent::sync_direct_area_(const lv_area_t *area) {
+#ifdef USE_ESP32
+#if LV_COLOR_DEPTH == 32
+  constexpr size_t BYTES_PER_PIXEL = 3;
+#else
+  constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
+#endif
+  constexpr uintptr_t CACHE_ALIGN = 128;
+  const int32_t x1 = std::max<int32_t>(0, area->x1);
+  const int32_t y1 = std::max<int32_t>(0, area->y1);
+  const int32_t x2 = std::min<int32_t>(this->width_ - 1, area->x2);
+  const int32_t y2 = std::min<int32_t>(this->height_ - 1, area->y2);
+  if (x2 < x1 || y2 < y1)
+    return;
+
+  auto sync_range = [](uint8_t *ptr, size_t len) {
+    uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(CACHE_ALIGN - 1);
+    uintptr_t end = (reinterpret_cast<uintptr_t>(ptr) + len + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+    if (end > start) {
+      esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    }
+  };
+
+  const size_t row_bytes = this->width_ * BYTES_PER_PIXEL;
+  const size_t area_width_bytes = (x2 - x1 + 1) * BYTES_PER_PIXEL;
+  if (x1 == 0 && x2 == this->width_ - 1) {
+    sync_range(this->draw_buf_ + y1 * row_bytes, (y2 - y1 + 1) * row_bytes);
+  } else {
+    for (int32_t y = y1; y <= y2; y++) {
+      sync_range(this->draw_buf_ + y * row_bytes + x1 * BYTES_PER_PIXEL, area_width_bytes);
+    }
+  }
+#endif
 }
 
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
@@ -809,11 +855,12 @@ void LvglComponent::write_random_() {
  *                         presses a key or clicks on the screen.
  */
 LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh,
-                             int draw_rounding, bool resume_on_input, bool update_when_display_idle)
+                             bool direct_mode, int draw_rounding, bool resume_on_input, bool update_when_display_idle)
     : draw_rounding(draw_rounding),
       displays_(std::move(displays)),
       buffer_frac_(buffer_frac),
       full_refresh_(full_refresh),
+      direct_mode_(direct_mode),
       resume_on_input_(resume_on_input),
       update_when_display_idle_(update_when_display_idle) {
   this->disp_ = lv_display_create(240, 240);
@@ -828,6 +875,7 @@ void LvglComponent::setup() {
   auto width = (display->get_width() + rounding - 1) / rounding * rounding;
   auto height = (display->get_height() + rounding - 1) / rounding * rounding;
   auto frac = this->buffer_frac_;
+  this->rotation = display->get_rotation();
   if (frac == 0)
     frac = 1;
   // LV_COLOR_FORMAT_RGB888 uses 3 bytes/pixel even when LV_COLOR_DEPTH=32
@@ -865,7 +913,26 @@ void LvglComponent::setup() {
     return lv_malloc_core(sz);
   };
 
-  buffer = alloc_draw_buf(buf_bytes);
+#ifdef USE_MIPI_DSI
+  if (this->direct_mode_) {
+    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(display);
+    if (mipi_display != nullptr && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
+        mipi_display->get_frame_buffer() != nullptr && mipi_display->get_frame_buffer_size() >= buf_bytes) {
+      buffer = mipi_display->get_frame_buffer();
+      this->direct_mode_active_ = true;
+      ESP_LOGI(TAG, "LVGL direct mode enabled on MIPI framebuffer (%zu bytes)", buf_bytes);
+    } else {
+      ESP_LOGW(TAG, "LVGL direct mode requested but unavailable, falling back to partial flush");
+    }
+  }
+#else
+  if (this->direct_mode_) {
+    ESP_LOGW(TAG, "LVGL direct mode requested but MIPI DSI is not enabled");
+  }
+#endif
+
+  if (buffer == nullptr)
+    buffer = alloc_draw_buf(buf_bytes);
   // if specific buffer size not set and can't get 100%, try for a smaller one
   if (buffer == nullptr && this->buffer_frac_ == 0) {
     frac = MIN_BUFFER_FRAC;
@@ -893,7 +960,6 @@ void LvglComponent::setup() {
   // Store buf_bytes - lv_display_set_buffers() is called at the END of setup()
   // to avoid triggering rendering before all callbacks and pages are configured.
   this->buf_bytes_ = buf_bytes;
-  this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes));
     if (this->rotate_buf_ == nullptr) {
@@ -934,7 +1000,9 @@ void LvglComponent::setup() {
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
   lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
-                         this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
+                         this->direct_mode_active_ ? LV_DISPLAY_RENDER_MODE_DIRECT
+                                                   : (this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL
+                                                                         : LV_DISPLAY_RENDER_MODE_PARTIAL));
   this->buffers_configured_ = true;
 
 #ifdef USE_LVGL_PPA

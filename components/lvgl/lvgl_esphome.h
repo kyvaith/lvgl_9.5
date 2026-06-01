@@ -154,8 +154,8 @@ class LvglComponent : public PollingComponent {
   constexpr static const char *const TAG = "lvgl";
 
  public:
-  LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
-                bool resume_on_input, bool update_when_display_idle);
+  LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, bool direct_mode,
+                int draw_rounding, bool resume_on_input, bool update_when_display_idle);
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -227,15 +227,18 @@ class LvglComponent : public PollingComponent {
 
   void write_random_();
   void draw_buffer_(const lv_area_t *area, lv_color_data *ptr);
+  void sync_direct_area_(const lv_area_t *area);
   void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   std::vector<display::Display *> displays_{};
   size_t buffer_frac_{1};
   bool full_refresh_{};
+  bool direct_mode_{};
   bool resume_on_input_{};
   bool update_when_display_idle_{};
 
   uint8_t *draw_buf_{};
+  bool direct_mode_active_{false};
   lv_display_t *disp_{};
   uint16_t width_{};
   uint16_t height_{};
