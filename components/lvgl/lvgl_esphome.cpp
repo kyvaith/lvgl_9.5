@@ -1188,8 +1188,13 @@ struct SnapshotSwipeState {
 };
 
 SnapshotSwipeState snapshot_swipe_state;
+lv_timer_t *snapshot_swipe_cleanup_timer{nullptr};
 
 void snapshot_swipe_cleanup() {
+  if (snapshot_swipe_cleanup_timer != nullptr) {
+    lv_timer_delete(snapshot_swipe_cleanup_timer);
+    snapshot_swipe_cleanup_timer = nullptr;
+  }
   if (snapshot_swipe_state.current_img != nullptr) {
     lv_obj_delete(snapshot_swipe_state.current_img);
     snapshot_swipe_state.current_img = nullptr;
@@ -1212,6 +1217,14 @@ void snapshot_swipe_align(lv_obj_t *obj, int x) {
   if (obj != nullptr)
     lv_obj_align(obj, LV_ALIGN_CENTER, x, 0);
 }
+
+void snapshot_swipe_anim_x(void *obj, int32_t x) { snapshot_swipe_align(static_cast<lv_obj_t *>(obj), x); }
+
+void snapshot_swipe_cleanup_timer_cb(lv_timer_t *timer) {
+  snapshot_swipe_cleanup_timer = nullptr;
+  lv_timer_delete(timer);
+  snapshot_swipe_cleanup();
+}
 }  // namespace
 
 extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x) {
@@ -1230,11 +1243,10 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   lv_obj_align(next, LV_ALIGN_CENTER, next_x, 0);
   lv_obj_update_layout(parent);
 
-#if LV_COLOR_DEPTH == 16
+  // RGB565 is intentionally used even with a 24/32-bit panel. The snapshots
+  // are transient transition layers, and halving their size greatly reduces
+  // the visible hitch when the user begins a swipe.
   constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
-#else
-  constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
-#endif
 
   snapshot_swipe_state.current_buf = lv_snapshot_take(current, SNAPSHOT_CF);
   snapshot_swipe_state.next_buf = lv_snapshot_take(next, SNAPSHOT_CF);
@@ -1275,6 +1287,38 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
   snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
   snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+}
+
+extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms) {
+  if (snapshot_swipe_state.current_img == nullptr || snapshot_swipe_state.next_img == nullptr) {
+    snapshot_swipe_cleanup();
+    return;
+  }
+  if (duration_ms == 0) {
+    snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
+    snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+    snapshot_swipe_cleanup();
+    return;
+  }
+
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_exec_cb(&anim, snapshot_swipe_anim_x);
+  lv_anim_set_duration(&anim, duration_ms);
+  lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+
+  lv_anim_set_var(&anim, snapshot_swipe_state.current_img);
+  lv_anim_set_values(&anim, lv_obj_get_x(snapshot_swipe_state.current_img), current_x);
+  lv_anim_start(&anim);
+
+  lv_anim_set_var(&anim, snapshot_swipe_state.next_img);
+  lv_anim_set_values(&anim, lv_obj_get_x(snapshot_swipe_state.next_img), next_x);
+  lv_anim_start(&anim);
+
+  if (snapshot_swipe_cleanup_timer != nullptr)
+    lv_timer_delete(snapshot_swipe_cleanup_timer);
+  snapshot_swipe_cleanup_timer = lv_timer_create(snapshot_swipe_cleanup_timer_cb, duration_ms + 30, nullptr);
+  lv_timer_set_repeat_count(snapshot_swipe_cleanup_timer, 1);
 }
 
 extern "C" void lvgl_esphome_snapshot_swipe_end(void) { snapshot_swipe_cleanup(); }
