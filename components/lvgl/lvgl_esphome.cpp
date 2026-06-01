@@ -1178,6 +1178,107 @@ void lv_animimg_stop(lv_obj_t *obj) {
   lv_animimg_set_duration(obj, duration);
 }
 #endif
+
+namespace {
+struct SnapshotSwipeState {
+  lv_obj_t *current_img{nullptr};
+  lv_obj_t *next_img{nullptr};
+  lv_draw_buf_t *current_buf{nullptr};
+  lv_draw_buf_t *next_buf{nullptr};
+};
+
+SnapshotSwipeState snapshot_swipe_state;
+
+void snapshot_swipe_cleanup() {
+  if (snapshot_swipe_state.current_img != nullptr) {
+    lv_obj_delete(snapshot_swipe_state.current_img);
+    snapshot_swipe_state.current_img = nullptr;
+  }
+  if (snapshot_swipe_state.next_img != nullptr) {
+    lv_obj_delete(snapshot_swipe_state.next_img);
+    snapshot_swipe_state.next_img = nullptr;
+  }
+  if (snapshot_swipe_state.current_buf != nullptr) {
+    lv_draw_buf_destroy(snapshot_swipe_state.current_buf);
+    snapshot_swipe_state.current_buf = nullptr;
+  }
+  if (snapshot_swipe_state.next_buf != nullptr) {
+    lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
+    snapshot_swipe_state.next_buf = nullptr;
+  }
+}
+
+void snapshot_swipe_align(lv_obj_t *obj, int x) {
+  if (obj != nullptr)
+    lv_obj_align(obj, LV_ALIGN_CENTER, x, 0);
+}
+}  // namespace
+
+extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x) {
+#if LV_USE_SNAPSHOT
+  snapshot_swipe_cleanup();
+  if (current == nullptr || next == nullptr)
+    return false;
+
+  auto *parent = lv_obj_get_parent(current);
+  if (parent == nullptr)
+    return false;
+
+  lv_obj_clear_flag(current, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align(current, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_align(next, LV_ALIGN_CENTER, next_x, 0);
+  lv_obj_update_layout(parent);
+
+#if LV_COLOR_DEPTH == 16
+  constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
+#else
+  constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
+#endif
+
+  snapshot_swipe_state.current_buf = lv_snapshot_take(current, SNAPSHOT_CF);
+  snapshot_swipe_state.next_buf = lv_snapshot_take(next, SNAPSHOT_CF);
+  if (snapshot_swipe_state.current_buf == nullptr || snapshot_swipe_state.next_buf == nullptr) {
+    ESP_LOGW(TAG, "snapshot swipe: failed to create draw buffers");
+    snapshot_swipe_cleanup();
+    return false;
+  }
+
+  snapshot_swipe_state.current_img = lv_image_create(parent);
+  snapshot_swipe_state.next_img = lv_image_create(parent);
+  if (snapshot_swipe_state.current_img == nullptr || snapshot_swipe_state.next_img == nullptr) {
+    ESP_LOGW(TAG, "snapshot swipe: failed to create image widgets");
+    snapshot_swipe_cleanup();
+    return false;
+  }
+
+  lv_image_set_src(snapshot_swipe_state.current_img, snapshot_swipe_state.current_buf);
+  lv_image_set_src(snapshot_swipe_state.next_img, snapshot_swipe_state.next_buf);
+  lv_obj_set_size(snapshot_swipe_state.current_img, width, width);
+  lv_obj_set_size(snapshot_swipe_state.next_img, width, width);
+  lv_obj_add_flag(snapshot_swipe_state.current_img, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(snapshot_swipe_state.next_img, LV_OBJ_FLAG_CLICKABLE);
+  snapshot_swipe_align(snapshot_swipe_state.current_img, 0);
+  snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+  lv_obj_move_foreground(snapshot_swipe_state.current_img);
+  lv_obj_move_foreground(snapshot_swipe_state.next_img);
+
+  lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
+  ESP_LOGD(TAG, "snapshot swipe: active, next_x=%d", next_x);
+  return true;
+#else
+  return false;
+#endif
+}
+
+extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
+  snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
+  snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+}
+
+extern "C" void lvgl_esphome_snapshot_swipe_end(void) { snapshot_swipe_cleanup(); }
+
 void LvglComponent::static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   reinterpret_cast<LvglComponent *>(lv_display_get_user_data(disp_drv))->flush_cb_(disp_drv, area, color_p);
 }

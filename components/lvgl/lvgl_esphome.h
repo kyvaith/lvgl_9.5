@@ -32,6 +32,9 @@ extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void);
 extern "C" uint32_t lvgl_esphome_get_loop_max_ms(void);
 extern "C" uint32_t lvgl_esphome_get_flush_max_ms(void);
 extern "C" uint32_t lvgl_esphome_get_invalidated_kpx(void);
+extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x);
+extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x);
+extern "C" void lvgl_esphome_snapshot_swipe_end(void);
 
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"

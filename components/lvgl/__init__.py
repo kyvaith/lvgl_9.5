@@ -331,6 +331,10 @@ async def to_code(configs):
     # community for smoother sysmon readings; doesn't force higher FPS).
     df.add_define("LV_DEF_REFR_PERIOD", "15")
 
+    # Used by swipe transitions to animate static page images instead of
+    # re-rendering the full live widget tree on every touch update.
+    df.add_define("LV_USE_SNAPSHOT", "1")
+
     # LVGL 9.5: Enable blur/frosted glass support (small code, useful for shadows)
     df.add_define("LV_USE_DRAW_SW_BLUR", "1")
 
