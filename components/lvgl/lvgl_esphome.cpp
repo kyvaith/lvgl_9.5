@@ -555,8 +555,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-      if (!s_snapshot_swipe_active)
-        this->sync_direct_other_buffer_(area, color_p);
+      this->sync_direct_other_buffer_(area, color_p);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
@@ -1206,7 +1205,7 @@ struct SnapshotCacheEntry {
 SnapshotSwipeState snapshot_swipe_state;
 SnapshotCacheEntry snapshot_cache[4];
 
-constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_NATIVE;
+constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB565;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
