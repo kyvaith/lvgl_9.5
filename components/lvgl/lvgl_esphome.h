@@ -242,6 +242,8 @@ class LvglComponent : public PollingComponent {
   void write_random_();
   void draw_buffer_(const lv_area_t *area, lv_color_data *ptr);
   void sync_direct_other_buffer_(const lv_area_t *area, uint8_t *color_p);
+  uint8_t *next_direct_render_buffer_() const;
+  void present_direct_render_buffer_(uint8_t *buffer);
   void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   std::vector<display::Display *> displays_{};

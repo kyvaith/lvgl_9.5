@@ -640,6 +640,28 @@ void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *co
 #endif
 }
 
+uint8_t *LvglComponent::next_direct_render_buffer_() const {
+  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr)
+    return this->draw_buf_;
+  if (this->draw_buf2_ == nullptr)
+    return this->draw_buf_;
+  if (this->direct_last_flushed_buf_ == this->draw_buf_)
+    return this->draw_buf2_;
+  if (this->direct_last_flushed_buf_ == this->draw_buf2_)
+    return this->draw_buf_;
+  return this->draw_buf_;
+}
+
+void LvglComponent::present_direct_render_buffer_(uint8_t *buffer) {
+  if (buffer == nullptr)
+    return;
+  for (auto *display : this->displays_) {
+    display->draw_pixels_at(0, 0, this->width_, this->height_, buffer, display::COLOR_ORDER_RGB, LV_BITNESS,
+                            this->big_endian_);
+  }
+  this->direct_last_flushed_buf_ = buffer;
+}
+
 bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x,
                                                  int width) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
@@ -729,8 +751,9 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       sync_range(dst, fb_bytes);
   };
 
-  uint8_t *target = this->direct_last_flushed_buf_ != nullptr ? this->direct_last_flushed_buf_ : this->draw_buf_;
+  uint8_t *target = this->next_direct_render_buffer_();
   render_to(target);
+  this->present_direct_render_buffer_(target);
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
 #endif
@@ -784,7 +807,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   const size_t fb_bytes = (size_t) this->width_ * this->height_ * OUT_BYTES_PER_PIXEL;
   if (this->buf_bytes_ < fb_bytes)
     return false;
-  uint8_t *target = this->direct_last_flushed_buf_ != nullptr ? this->direct_last_flushed_buf_ : this->draw_buf_;
+  uint8_t *target = this->next_direct_render_buffer_();
 
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = const_cast<uint8_t *>(panorama);
@@ -817,6 +840,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
     }
     return false;
   }
+  this->present_direct_render_buffer_(target);
 
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
