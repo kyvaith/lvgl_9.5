@@ -773,7 +773,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
     return false;
 
   constexpr size_t OUT_BYTES_PER_PIXEL = 3;
-  constexpr size_t IN_BYTES_PER_PIXEL = 2;
+  constexpr size_t IN_BYTES_PER_PIXEL = 3;
   const int source_width = width / scale;
   const int source_height = this->height_ / scale;
   const int panorama_width = source_width * 2;
@@ -794,7 +794,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   cfg.in.block_h = source_height;
   cfg.in.block_offset_x = source_x;
   cfg.in.block_offset_y = 0;
-  cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
   cfg.out.buffer = target;
   cfg.out.buffer_size = this->buf_bytes_;
   cfg.out.pic_w = this->width_;
@@ -812,7 +812,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   if (ret != ESP_OK) {
     static bool warned = false;
     if (!warned) {
-      ESP_LOGW(TAG, "snapshot panorama: PPA RGB565->RGB888 copy failed (%d)", ret);
+      ESP_LOGW(TAG, "snapshot panorama: PPA RGB888 copy failed (%d)", ret);
       warned = true;
     }
     return false;
@@ -1455,7 +1455,7 @@ SnapshotCacheEntry snapshot_cache[4];
 SnapshotPanoramaCacheEntry snapshot_panorama_cache[4];
 
 constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
-constexpr int SNAPSHOT_PANORAMA_SCALE = 2;
+constexpr int SNAPSHOT_PANORAMA_SCALE = 1;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
@@ -1518,15 +1518,16 @@ void snapshot_swipe_clear_panorama() {
   snapshot_swipe_state.panorama_render = false;
 }
 
-static inline void snapshot_swipe_rgb888_to_rgb565_scaled_row(const uint8_t *src, uint8_t *dst, int width, int scale) {
+static inline void snapshot_swipe_copy_rgb888_scaled_row(const uint8_t *src, uint8_t *dst, int width, int scale) {
+  if (scale == 1) {
+    memcpy(dst, src, (size_t) width * 3);
+    return;
+  }
   for (int x = 0; x < width; x++) {
     const int src_x = x * scale;
-    const uint8_t r = src[src_x * 3 + 0];
-    const uint8_t g = src[src_x * 3 + 1];
-    const uint8_t b = src[src_x * 3 + 2];
-    const uint16_t rgb565 = ((uint16_t) (r & 0xF8) << 8) | ((uint16_t) (g & 0xFC) << 3) | (uint16_t) (b >> 3);
-    dst[x * 2 + 0] = rgb565 & 0xFF;
-    dst[x * 2 + 1] = rgb565 >> 8;
+    dst[x * 3 + 0] = src[src_x * 3 + 0];
+    dst[x * 3 + 1] = src[src_x * 3 + 1];
+    dst[x * 3 + 2] = src[src_x * 3 + 2];
   }
 }
 
@@ -1562,7 +1563,7 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
     return nullptr;
 
   constexpr size_t CACHE_ALIGN = 128;
-  constexpr size_t BYTES_PER_PIXEL = 2;
+  constexpr size_t BYTES_PER_PIXEL = 3;
   const int scaled_width = width / scale;
   const int scaled_height = height / scale;
   const int panorama_width = scaled_width * 2;
@@ -1582,9 +1583,9 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
     const uint8_t *left_row = left->data + (size_t) src_y * left->header.stride;
     const uint8_t *right_row = right->data + (size_t) src_y * right->header.stride;
     uint8_t *dst_row = panorama + (size_t) y * panorama_stride;
-    snapshot_swipe_rgb888_to_rgb565_scaled_row(left_row, dst_row, scaled_width, scale);
-    snapshot_swipe_rgb888_to_rgb565_scaled_row(right_row, dst_row + (size_t) scaled_width * BYTES_PER_PIXEL,
-                                              scaled_width, scale);
+    snapshot_swipe_copy_rgb888_scaled_row(left_row, dst_row, scaled_width, scale);
+    snapshot_swipe_copy_rgb888_scaled_row(right_row, dst_row + (size_t) scaled_width * BYTES_PER_PIXEL, scaled_width,
+                                         scale);
   }
   esp_cache_msync(panorama, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
@@ -1604,7 +1605,7 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
   slot->size = aligned_size;
   slot->width = width;
   slot->scale = scale;
-  ESP_LOGI(TAG, "snapshot panorama: cached RGB565 %dx%d scale=%dx (%u KB) in %lluus", panorama_width,
+  ESP_LOGI(TAG, "snapshot panorama: cached RGB888 %dx%d scale=%dx (%u KB) in %lluus", panorama_width,
            scaled_height, scale, (unsigned) (aligned_size / 1024),
            (unsigned long long) (esp_timer_get_time() - t0));
   return slot;
@@ -1859,7 +1860,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
       lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
       ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active (%s), next_x=%d",
-               snapshot_swipe_state.panorama_render ? "RGB565 panorama" : "RGB888 strips", next_x);
+               snapshot_swipe_state.panorama_render ? "RGB888 panorama" : "RGB888 strips", next_x);
       return true;
     }
     snapshot_swipe_state.component = nullptr;
