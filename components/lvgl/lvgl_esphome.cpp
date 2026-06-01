@@ -553,7 +553,9 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
-      this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+      // LVGL is drawing directly into the DPI framebuffer. Avoid copying the
+      // same pixels again through esp_lcd_panel_draw_bitmap(); just maintain
+      // cache coherency and the inactive framebuffer.
       this->sync_direct_other_buffer_(area, color_p);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
@@ -612,11 +614,21 @@ void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *co
     return;
   }
 
-  for (int32_t y = y1; y <= y2; y++) {
-    uint8_t *dst_line = dst + y * row_bytes + x1 * BYTES_PER_PIXEL;
-    const uint8_t *src_line = src + y * row_bytes + x1 * BYTES_PER_PIXEL;
-    memcpy(dst_line, src_line, area_width_bytes);
-    sync_range(dst_line, area_width_bytes);
+  if (x1 == 0 && area_width_bytes == row_bytes) {
+    uint8_t *dst_block = dst + y1 * row_bytes;
+    const uint8_t *src_block = src + y1 * row_bytes;
+    const size_t block_bytes = (size_t) (y2 - y1 + 1) * row_bytes;
+    sync_range(const_cast<uint8_t *>(src_block), block_bytes);
+    memcpy(dst_block, src_block, block_bytes);
+    sync_range(dst_block, block_bytes);
+  } else {
+    for (int32_t y = y1; y <= y2; y++) {
+      uint8_t *dst_line = dst + y * row_bytes + x1 * BYTES_PER_PIXEL;
+      const uint8_t *src_line = src + y * row_bytes + x1 * BYTES_PER_PIXEL;
+      sync_range(const_cast<uint8_t *>(src_line), area_width_bytes);
+      memcpy(dst_line, src_line, area_width_bytes);
+      sync_range(dst_line, area_width_bytes);
+    }
   }
 #endif
 }
