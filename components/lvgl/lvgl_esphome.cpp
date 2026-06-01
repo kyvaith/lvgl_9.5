@@ -530,7 +530,8 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
-      this->sync_direct_area_(area);
+      this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+      this->sync_direct_other_buffer_(area, color_p);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
@@ -544,7 +545,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   lv_display_flush_ready(disp_drv);
 }
 
-void LvglComponent::sync_direct_area_(const lv_area_t *area) {
+void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *color_p) {
 #ifdef USE_ESP32
 #if LV_COLOR_DEPTH == 32
   constexpr size_t BYTES_PER_PIXEL = 3;
@@ -558,6 +559,8 @@ void LvglComponent::sync_direct_area_(const lv_area_t *area) {
   const int32_t y2 = std::min<int32_t>(this->height_ - 1, area->y2);
   if (x2 < x1 || y2 < y1)
     return;
+  if (this->draw_buf_ == nullptr || this->draw_buf2_ == nullptr)
+    return;
 
   auto sync_range = [](uint8_t *ptr, size_t len) {
     uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(CACHE_ALIGN - 1);
@@ -569,12 +572,24 @@ void LvglComponent::sync_direct_area_(const lv_area_t *area) {
 
   const size_t row_bytes = this->width_ * BYTES_PER_PIXEL;
   const size_t area_width_bytes = (x2 - x1 + 1) * BYTES_PER_PIXEL;
-  if (x1 == 0 && x2 == this->width_ - 1) {
-    sync_range(this->draw_buf_ + y1 * row_bytes, (y2 - y1 + 1) * row_bytes);
+  const size_t fb_bytes = this->width_ * this->height_ * BYTES_PER_PIXEL;
+  uint8_t *src = nullptr;
+  uint8_t *dst = nullptr;
+  if (color_p >= this->draw_buf_ && color_p < this->draw_buf_ + fb_bytes) {
+    src = this->draw_buf_;
+    dst = this->draw_buf2_;
+  } else if (color_p >= this->draw_buf2_ && color_p < this->draw_buf2_ + fb_bytes) {
+    src = this->draw_buf2_;
+    dst = this->draw_buf_;
   } else {
-    for (int32_t y = y1; y <= y2; y++) {
-      sync_range(this->draw_buf_ + y * row_bytes + x1 * BYTES_PER_PIXEL, area_width_bytes);
-    }
+    return;
+  }
+
+  for (int32_t y = y1; y <= y2; y++) {
+    uint8_t *dst_line = dst + y * row_bytes + x1 * BYTES_PER_PIXEL;
+    const uint8_t *src_line = src + y * row_bytes + x1 * BYTES_PER_PIXEL;
+    memcpy(dst_line, src_line, area_width_bytes);
+    sync_range(dst_line, area_width_bytes);
   }
 #endif
 }
@@ -922,8 +937,10 @@ void LvglComponent::setup() {
   if (this->direct_mode_) {
     auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(display);
     if (mipi_display != nullptr && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
-        mipi_display->get_frame_buffer() != nullptr && mipi_display->get_frame_buffer_size() >= buf_bytes) {
+        mipi_display->get_frame_buffer(0) != nullptr && mipi_display->get_frame_buffer(1) != nullptr &&
+        mipi_display->get_frame_buffer_size() >= buf_bytes) {
       buffer = mipi_display->get_frame_buffer();
+      this->draw_buf2_ = mipi_display->get_frame_buffer(1);
       this->direct_mode_active_ = true;
       s_direct_mode_active = 1;
       ESP_LOGI(TAG, "LVGL direct mode enabled on MIPI framebuffer (%zu bytes)", buf_bytes);
@@ -1005,7 +1022,8 @@ void LvglComponent::setup() {
 
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
+  lv_display_set_buffers(this->disp_, this->draw_buf_, this->direct_mode_active_ ? this->draw_buf2_ : nullptr,
+                         this->buf_bytes_,
                          this->direct_mode_active_ ? LV_DISPLAY_RENDER_MODE_DIRECT
                                                    : (this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL
                                                                          : LV_DISPLAY_RENDER_MODE_PARTIAL));

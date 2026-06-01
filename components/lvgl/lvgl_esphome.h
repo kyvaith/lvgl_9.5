@@ -228,7 +228,7 @@ class LvglComponent : public PollingComponent {
 
   void write_random_();
   void draw_buffer_(const lv_area_t *area, lv_color_data *ptr);
-  void sync_direct_area_(const lv_area_t *area);
+  void sync_direct_other_buffer_(const lv_area_t *area, uint8_t *color_p);
   void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   std::vector<display::Display *> displays_{};
@@ -239,6 +239,7 @@ class LvglComponent : public PollingComponent {
   bool update_when_display_idle_{};
 
   uint8_t *draw_buf_{};
+  uint8_t *draw_buf2_{};
   bool direct_mode_active_{false};
   lv_display_t *disp_{};
   uint16_t width_{};
