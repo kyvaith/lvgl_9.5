@@ -1398,7 +1398,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
     return false;
   }
   lv_obj_remove_style_all(snapshot_swipe_state.layer);
-  lv_obj_set_size(snapshot_swipe_state.layer, width, width);
+  lv_obj_set_size(snapshot_swipe_state.layer, width * 3, width);
   lv_obj_align(snapshot_swipe_state.layer, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_bg_color(snapshot_swipe_state.layer, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(snapshot_swipe_state.layer, LV_OPA_COVER, 0);
