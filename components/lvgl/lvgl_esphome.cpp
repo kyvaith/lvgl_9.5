@@ -641,6 +641,7 @@ void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *co
 bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x,
                                                  int width) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
+  uint64_t t0 = esp_timer_get_time();
   if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || current == nullptr || next == nullptr)
     return false;
   if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0)
@@ -696,6 +697,27 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
 #endif
+  uint32_t frame_us = (uint32_t) (esp_timer_get_time() - t0);
+  static uint64_t last_log_us = 0;
+  static uint32_t frames = 0;
+  static uint64_t total_us = 0;
+  static uint32_t max_us = 0;
+  uint64_t now_us = esp_timer_get_time();
+  frames++;
+  total_us += frame_us;
+  if (frame_us > max_us)
+    max_us = frame_us;
+  if (last_log_us == 0)
+    last_log_us = now_us;
+  if (now_us - last_log_us >= 1000000ULL) {
+    uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
+    ESP_LOGI(TAG, "snapshot direct: fps=%u avg=%lluus max=%uus", (unsigned) fps,
+             (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us);
+    last_log_us = now_us;
+    frames = 0;
+    total_us = 0;
+    max_us = 0;
+  }
   return true;
 #else
   return false;
@@ -1528,7 +1550,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
     s_snapshot_direct_active = true;
     lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
-    ESP_LOGD(TAG, "snapshot swipe: direct framebuffer compositor active, next_x=%d", next_x);
+    ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active, next_x=%d", next_x);
     return true;
   }
 
