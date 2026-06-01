@@ -31,12 +31,17 @@ static const char *const TAG = "lvgl";
 // overlay. Updated each second by loop(). Read by __wrap_lv_timer_get_idle
 // below to override lv_sysmon's broken FreeRTOS-mode CPU calculation.
 static volatile uint32_t s_cpu_pct = 0;
+static volatile uint32_t s_flush_ms = 0;
 
 }  // namespace esphome::lvgl
 
 extern "C" uint32_t lvgl_esphome_get_cpu_pct(void) {
   uint32_t cpu = esphome::lvgl::s_cpu_pct;
   return cpu > 100 ? 100 : cpu;
+}
+
+extern "C" uint32_t lvgl_esphome_get_flush_ms(void) {
+  return esphome::lvgl::s_flush_ms;
 }
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
@@ -990,6 +995,7 @@ void LvglComponent::loop() {
       uint32_t cpu_pct = (uint32_t)((cpu_us * 100ULL) / elapsed_us);
       if (cpu_pct > 100) cpu_pct = 100;
       s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
+      s_flush_ms = (uint32_t) (this->perf_flush_us_ / 1000ULL);
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
