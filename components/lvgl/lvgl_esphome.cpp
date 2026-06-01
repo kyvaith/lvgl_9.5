@@ -1185,8 +1185,10 @@ namespace {
 struct SnapshotSwipeState {
   lv_obj_t *current_root{nullptr};
   lv_obj_t *next_root{nullptr};
+  lv_obj_t *layer{nullptr};
   lv_obj_t *current_img{nullptr};
   lv_obj_t *next_img{nullptr};
+  lv_timer_t *cleanup_timer{nullptr};
   lv_draw_buf_t *current_buf{nullptr};
   lv_draw_buf_t *next_buf{nullptr};
   bool owns_current_buf{false};
@@ -1236,6 +1238,10 @@ void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
 
 void snapshot_swipe_cleanup() {
   s_snapshot_swipe_active = false;
+  if (snapshot_swipe_state.cleanup_timer != nullptr) {
+    lv_timer_delete(snapshot_swipe_state.cleanup_timer);
+    snapshot_swipe_state.cleanup_timer = nullptr;
+  }
   if (snapshot_swipe_state.current_img != nullptr) {
     lv_obj_delete(snapshot_swipe_state.current_img);
     snapshot_swipe_state.current_img = nullptr;
@@ -1243,6 +1249,10 @@ void snapshot_swipe_cleanup() {
   if (snapshot_swipe_state.next_img != nullptr) {
     lv_obj_delete(snapshot_swipe_state.next_img);
     snapshot_swipe_state.next_img = nullptr;
+  }
+  if (snapshot_swipe_state.layer != nullptr) {
+    lv_obj_delete(snapshot_swipe_state.layer);
+    snapshot_swipe_state.layer = nullptr;
   }
   if (snapshot_swipe_state.current_buf != nullptr) {
     if (snapshot_swipe_state.owns_current_buf)
@@ -1287,6 +1297,20 @@ void snapshot_swipe_apply_final_roots() {
 }
 
 void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
+  if (snapshot_swipe_state.cleanup_timer == nullptr) {
+    snapshot_swipe_state.cleanup_timer = lv_timer_create(
+        [](lv_timer_t *timer) {
+          snapshot_swipe_state.cleanup_timer = nullptr;
+          snapshot_swipe_apply_final_roots();
+          snapshot_swipe_cleanup();
+          lv_obj_invalidate(lv_screen_active());
+          lv_timer_delete(timer);
+        },
+        1, nullptr);
+  }
+}
+
+void snapshot_swipe_finish_now() {
   snapshot_swipe_apply_final_roots();
   snapshot_swipe_cleanup();
   lv_obj_invalidate(lv_screen_active());
@@ -1356,8 +1380,22 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
     return false;
   }
 
-  snapshot_swipe_state.current_img = lv_image_create(parent);
-  snapshot_swipe_state.next_img = lv_image_create(parent);
+  snapshot_swipe_state.layer = lv_obj_create(parent);
+  if (snapshot_swipe_state.layer == nullptr) {
+    ESP_LOGW(TAG, "snapshot swipe: failed to create layer widget");
+    snapshot_swipe_cleanup();
+    return false;
+  }
+  lv_obj_remove_style_all(snapshot_swipe_state.layer);
+  lv_obj_set_size(snapshot_swipe_state.layer, width, width);
+  lv_obj_align(snapshot_swipe_state.layer, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(snapshot_swipe_state.layer, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(snapshot_swipe_state.layer, LV_OPA_COVER, 0);
+  lv_obj_clear_flag(snapshot_swipe_state.layer, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(snapshot_swipe_state.layer, LV_OBJ_FLAG_CLICKABLE);
+
+  snapshot_swipe_state.current_img = lv_image_create(snapshot_swipe_state.layer);
+  snapshot_swipe_state.next_img = lv_image_create(snapshot_swipe_state.layer);
   if (snapshot_swipe_state.current_img == nullptr || snapshot_swipe_state.next_img == nullptr) {
     ESP_LOGW(TAG, "snapshot swipe: failed to create image widgets");
     snapshot_swipe_cleanup();
@@ -1372,8 +1410,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   lv_obj_add_flag(snapshot_swipe_state.next_img, LV_OBJ_FLAG_CLICKABLE);
   snapshot_swipe_align(snapshot_swipe_state.current_img, 0);
   snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
-  lv_obj_move_foreground(snapshot_swipe_state.current_img);
-  lv_obj_move_foreground(snapshot_swipe_state.next_img);
+  lv_obj_move_foreground(snapshot_swipe_state.layer);
 
   lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
@@ -1400,9 +1437,7 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
   if (duration_ms == 0) {
     snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
     snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
-    snapshot_swipe_apply_final_roots();
-    snapshot_swipe_cleanup();
-    lv_obj_invalidate(lv_screen_active());
+    snapshot_swipe_finish_now();
     return;
   }
 
