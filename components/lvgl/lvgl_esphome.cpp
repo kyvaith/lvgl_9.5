@@ -34,6 +34,7 @@ void lvgl_esphome_note_frame(void);
 }
 #endif
 
+#include <algorithm>
 #include <cstring>
 #include <numeric>
 
@@ -760,6 +761,90 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
 #endif
 }
 
+bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width,
+                                                          int initial_next_x) {
+#if LV_COLOR_DEPTH == 32 && defined(USE_ESP32) && defined(USE_LVGL_PPA)
+  uint64_t t0 = esp_timer_get_time();
+  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || panorama == nullptr || s_display_srm_client == nullptr)
+    return false;
+  if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0 || initial_next_x == 0)
+    return false;
+
+  constexpr size_t OUT_BYTES_PER_PIXEL = 3;
+  constexpr size_t IN_BYTES_PER_PIXEL = 2;
+  const int panorama_width = width * 2;
+  int window_x = initial_next_x > 0 ? -current_x : width - current_x;
+  window_x = std::clamp(window_x, 0, width);
+
+  const size_t fb_bytes = (size_t) this->width_ * this->height_ * OUT_BYTES_PER_PIXEL;
+  if (this->buf_bytes_ < fb_bytes)
+    return false;
+  uint8_t *target = this->direct_last_flushed_buf_ != nullptr ? this->direct_last_flushed_buf_ : this->draw_buf_;
+
+  ppa_srm_oper_config_t cfg = {};
+  cfg.in.buffer = const_cast<uint8_t *>(panorama);
+  cfg.in.pic_w = panorama_width;
+  cfg.in.pic_h = this->height_;
+  cfg.in.block_w = width;
+  cfg.in.block_h = this->height_;
+  cfg.in.block_offset_x = window_x;
+  cfg.in.block_offset_y = 0;
+  cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
+  cfg.out.buffer = target;
+  cfg.out.buffer_size = this->buf_bytes_;
+  cfg.out.pic_w = this->width_;
+  cfg.out.pic_h = this->height_;
+  cfg.out.block_offset_x = 0;
+  cfg.out.block_offset_y = 0;
+  cfg.out.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
+  cfg.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+  cfg.scale_x = 1.0f;
+  cfg.scale_y = 1.0f;
+  cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+  cfg.mode = PPA_TRANS_MODE_BLOCKING;
+
+  esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
+  if (ret != ESP_OK) {
+    static bool warned = false;
+    if (!warned) {
+      ESP_LOGW(TAG, "snapshot panorama: PPA RGB565->RGB888 copy failed (%d)", ret);
+      warned = true;
+    }
+    return false;
+  }
+
+#ifdef USE_LVGL_FPS_BENCHMARK
+  lvgl_esphome_note_frame();
+#endif
+  uint32_t frame_us = (uint32_t) (esp_timer_get_time() - t0);
+  static uint64_t last_log_us = 0;
+  static uint32_t frames = 0;
+  static uint64_t total_us = 0;
+  static uint32_t max_us = 0;
+  uint64_t now_us = esp_timer_get_time();
+  frames++;
+  total_us += frame_us;
+  if (frame_us > max_us)
+    max_us = frame_us;
+  if (last_log_us == 0)
+    last_log_us = now_us;
+  if (now_us - last_log_us >= 1000000ULL) {
+    uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
+    ESP_LOGI(TAG, "snapshot panorama: fps=%u avg=%lluus max=%uus src=%uKB dst=%uKB", (unsigned) fps,
+             (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us,
+             (unsigned) (((size_t) panorama_width * this->height_ * IN_BYTES_PER_PIXEL) / 1024),
+             (unsigned) (fb_bytes / 1024));
+    last_log_us = now_us;
+    frames = 0;
+    total_us = 0;
+    max_us = 0;
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
   parent->add_on_idle_callback([this](uint32_t idle_time) {
     if (!this->is_idle_ && idle_time > this->timeout_.value()) {
@@ -1338,6 +1423,10 @@ struct SnapshotSwipeState {
   int width{0};
   bool commit{false};
   bool direct_render{false};
+  bool panorama_render{false};
+  uint8_t *panorama_buf{nullptr};
+  size_t panorama_size{0};
+  int panorama_next_x{0};
   LvglComponent *component{nullptr};
 };
 
@@ -1379,6 +1468,94 @@ void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
   slot->buf = buf;
 }
 
+void snapshot_swipe_free_panorama() {
+#ifdef USE_ESP32
+  if (snapshot_swipe_state.panorama_buf != nullptr) {
+    heap_caps_free(snapshot_swipe_state.panorama_buf);
+    snapshot_swipe_state.panorama_buf = nullptr;
+  }
+#endif
+  snapshot_swipe_state.panorama_size = 0;
+  snapshot_swipe_state.panorama_next_x = 0;
+  snapshot_swipe_state.panorama_render = false;
+}
+
+static inline void snapshot_swipe_rgb888_to_rgb565_row(const uint8_t *src, uint8_t *dst, int width) {
+  for (int x = 0; x < width; x++) {
+    const uint8_t r = src[x * 3 + 0];
+    const uint8_t g = src[x * 3 + 1];
+    const uint8_t b = src[x * 3 + 2];
+    const uint16_t rgb565 = ((uint16_t) (r & 0xF8) << 8) | ((uint16_t) (g & 0xFC) << 3) | (uint16_t) (b >> 3);
+    dst[x * 2 + 0] = rgb565 & 0xFF;
+    dst[x * 2 + 1] = rgb565 >> 8;
+  }
+}
+
+bool snapshot_swipe_build_panorama_rgb565() {
+#if defined(USE_ESP32) && LV_COLOR_DEPTH == 32
+  snapshot_swipe_free_panorama();
+  auto &state = snapshot_swipe_state;
+  if (state.current_buf == nullptr || state.next_buf == nullptr || state.width <= 0 || state.next_x == 0)
+    return false;
+  if (state.current_buf->data == nullptr || state.next_buf->data == nullptr)
+    return false;
+  if (state.current_buf->header.cf != LV_COLOR_FORMAT_RGB888 || state.next_buf->header.cf != LV_COLOR_FORMAT_RGB888)
+    return false;
+  const int width = state.width;
+  const int height = state.current_buf->header.h;
+  if (state.current_buf->header.w < width || state.next_buf->header.w < width || state.next_buf->header.h < height)
+    return false;
+
+  constexpr size_t CACHE_ALIGN = 128;
+  constexpr size_t BYTES_PER_PIXEL = 2;
+  const int panorama_width = width * 2;
+  const size_t panorama_stride = (size_t) panorama_width * BYTES_PER_PIXEL;
+  const size_t panorama_size = panorama_stride * height;
+  const size_t aligned_size = (panorama_size + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+  auto *panorama = static_cast<uint8_t *>(
+      heap_caps_aligned_alloc(CACHE_ALIGN, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (panorama == nullptr) {
+    ESP_LOGW(TAG, "snapshot panorama: allocation failed (%u bytes)", (unsigned) aligned_size);
+    return false;
+  }
+
+  const bool next_on_right = state.next_x > 0;
+  const lv_draw_buf_t *left = next_on_right ? state.current_buf : state.next_buf;
+  const lv_draw_buf_t *right = next_on_right ? state.next_buf : state.current_buf;
+  const uint64_t t0 = esp_timer_get_time();
+  for (int y = 0; y < height; y++) {
+    const uint8_t *left_row = left->data + (size_t) y * left->header.stride;
+    const uint8_t *right_row = right->data + (size_t) y * right->header.stride;
+    uint8_t *dst_row = panorama + (size_t) y * panorama_stride;
+    snapshot_swipe_rgb888_to_rgb565_row(left_row, dst_row, width);
+    snapshot_swipe_rgb888_to_rgb565_row(right_row, dst_row + (size_t) width * BYTES_PER_PIXEL, width);
+  }
+  esp_cache_msync(panorama, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+
+  state.panorama_buf = panorama;
+  state.panorama_size = aligned_size;
+  state.panorama_next_x = state.next_x;
+  ESP_LOGI(TAG, "snapshot panorama: prepared RGB565 %dx%d (%u KB) in %lluus", panorama_width, height,
+           (unsigned) (aligned_size / 1024), (unsigned long long) (esp_timer_get_time() - t0));
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool snapshot_swipe_render_direct_frame(int current_x, int next_x) {
+  auto &state = snapshot_swipe_state;
+  if (state.component == nullptr)
+    return false;
+  if (state.panorama_render && state.panorama_buf != nullptr &&
+      state.component->snapshot_swipe_direct_render_panorama(state.panorama_buf, current_x, state.width,
+                                                            state.panorama_next_x)) {
+    return true;
+  }
+  return state.component->snapshot_swipe_direct_render(state.current_buf, state.next_buf, current_x, next_x,
+                                                      state.width);
+}
+
 void snapshot_swipe_cleanup() {
   s_snapshot_swipe_active = false;
   s_snapshot_direct_active = false;
@@ -1408,6 +1585,7 @@ void snapshot_swipe_cleanup() {
       lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
     snapshot_swipe_state.next_buf = nullptr;
   }
+  snapshot_swipe_free_panorama();
   snapshot_swipe_state.current_root = nullptr;
   snapshot_swipe_state.next_root = nullptr;
   snapshot_swipe_state.owns_current_buf = false;
@@ -1419,6 +1597,7 @@ void snapshot_swipe_cleanup() {
   snapshot_swipe_state.width = 0;
   snapshot_swipe_state.commit = false;
   snapshot_swipe_state.direct_render = false;
+  snapshot_swipe_state.panorama_render = false;
   snapshot_swipe_state.component = nullptr;
 }
 
@@ -1474,9 +1653,7 @@ void snapshot_swipe_direct_animate_to(int current_x, int next_x, uint32_t durati
     uint32_t elapsed_ms = (uint32_t) ((now_us - start_us) / 1000ULL);
     int frame_current_x = snapshot_swipe_ease_out(start_current_x, current_x, elapsed_ms, duration_ms);
     int frame_next_x = snapshot_swipe_ease_out(start_next_x, next_x, elapsed_ms, duration_ms);
-    snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
-                                                                 snapshot_swipe_state.next_buf, frame_current_x,
-                                                                 frame_next_x, snapshot_swipe_state.width);
+    snapshot_swipe_render_direct_frame(frame_current_x, frame_next_x);
     snapshot_swipe_state.current_x = frame_current_x;
     snapshot_swipe_state.next_x = frame_next_x;
     if (elapsed_ms >= duration_ms)
@@ -1578,16 +1755,24 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   snapshot_swipe_state.next_x = next_x;
   auto *disp = lv_obj_get_display(current);
   auto *component = disp == nullptr ? nullptr : static_cast<LvglComponent *>(lv_display_get_user_data(disp));
-  if (component != nullptr &&
-      component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf, snapshot_swipe_state.next_buf, 0,
-                                              next_x, width)) {
+  if (component != nullptr) {
     snapshot_swipe_state.component = component;
-    snapshot_swipe_state.direct_render = true;
-    s_snapshot_direct_active = true;
-    lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
-    ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active, next_x=%d", next_x);
-    return true;
+    if (snapshot_swipe_build_panorama_rgb565()) {
+      snapshot_swipe_state.panorama_render = true;
+      if (!snapshot_swipe_render_direct_frame(0, next_x)) {
+        snapshot_swipe_free_panorama();
+      }
+    }
+    if (snapshot_swipe_state.panorama_render || snapshot_swipe_render_direct_frame(0, next_x)) {
+      snapshot_swipe_state.direct_render = true;
+      s_snapshot_direct_active = true;
+      lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
+      ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active (%s), next_x=%d",
+               snapshot_swipe_state.panorama_render ? "RGB565 panorama" : "RGB888 strips", next_x);
+      return true;
+    }
+    snapshot_swipe_state.component = nullptr;
   }
 
   snapshot_swipe_state.layer = lv_obj_create(parent);
@@ -1634,9 +1819,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
 
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
   if (snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr) {
-    if (snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
-                                                                     snapshot_swipe_state.next_buf, current_x, next_x,
-                                                                     snapshot_swipe_state.width)) {
+    if (snapshot_swipe_render_direct_frame(current_x, next_x)) {
       snapshot_swipe_state.current_x = current_x;
       snapshot_swipe_state.next_x = next_x;
     }
@@ -1653,10 +1836,7 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
     snapshot_swipe_state.finish_next_x = next_x;
     snapshot_swipe_state.commit = commit;
     if (duration_ms == 0) {
-      if (snapshot_swipe_state.component != nullptr)
-        snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
-                                                                     snapshot_swipe_state.next_buf, current_x, next_x,
-                                                                     snapshot_swipe_state.width);
+      snapshot_swipe_render_direct_frame(current_x, next_x);
       snapshot_swipe_finish_now();
       return;
     }

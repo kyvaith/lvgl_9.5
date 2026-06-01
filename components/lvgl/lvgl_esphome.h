@@ -229,6 +229,7 @@ class LvglComponent : public PollingComponent {
   bool is_loop_started() const { return this->loop_started_; }
   void record_invalidated_area(const lv_area_t *area);
   bool snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x, int width);
+  bool snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int initial_next_x);
 
  protected:
   void draw_end_();
