@@ -1,5 +1,6 @@
 from esphome import automation
 import esphome.codegen as cg
+from esphome.cpp_generator import RawStatement
 from esphome.const import (
     CONF_ID,
     CONF_ON_BOOT,
@@ -75,7 +76,11 @@ async def generate_triggers():
                     f"lv_indev_get_gesture_dir(lv_indev_get_act()) == {dir}"
                 )
                 await add_trigger(
-                    conf, w, literal("LV_EVENT_GESTURE"), is_selected=selected
+                    conf,
+                    w,
+                    literal("LV_EVENT_GESTURE"),
+                    is_selected=selected,
+                    wait_release=True,
                 )
 
             for conf in w.config.get(CONF_ON_VALUE, ()):
@@ -98,7 +103,7 @@ async def generate_triggers():
                 lv.obj_align_to(w.obj, target, align, x, y)
 
 
-async def add_trigger(conf, w, *events, is_selected=None):
+async def add_trigger(conf, w, *events, is_selected=None, wait_release=False):
     is_selected = is_selected or w.is_selected()
     tid = conf[CONF_TRIGGER_ID]
     trigger = cg.new_Pvariable(tid)
@@ -107,5 +112,7 @@ async def add_trigger(conf, w, *events, is_selected=None):
     await automation.build_automation(trigger, args, conf)
     async with LambdaContext(EVENT_ARG, where=tid) as context:
         with LvConditional(is_selected):
+            if wait_release:
+                lv_add(RawStatement("lv_indev_wait_release(lv_indev_active());"))
             lv_add(trigger.trigger(*value, literal("event")))
     lv_add(lvgl_static.add_event_cb(w.obj, await context.get_lambda(), *events))
