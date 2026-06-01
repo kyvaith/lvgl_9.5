@@ -662,6 +662,17 @@ void LvglComponent::present_direct_render_buffer_(uint8_t *buffer) {
   this->direct_last_flushed_buf_ = buffer;
 }
 
+bool LvglComponent::wait_for_direct_frame_presented(uint32_t timeout_ms) {
+#ifdef USE_MIPI_DSI
+  if (!this->direct_mode_active_ || this->displays_.empty())
+    return false;
+  auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+  return mipi_display != nullptr && mipi_display->wait_for_refresh_done(timeout_ms);
+#else
+  return false;
+#endif
+}
+
 bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x,
                                                  int width) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
@@ -1776,13 +1787,25 @@ void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
 }
 
 void snapshot_swipe_finish_now() {
-  if (snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr) {
+  const bool direct_render = snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr;
+  if (direct_render) {
     // Prime the inactive framebuffer with the exact final snapshot frame before
     // LVGL resumes. Otherwise the first real-page refresh can briefly present
     // an older buffer and flash between the snapshot compositor and LVGL.
     snapshot_swipe_render_direct_frame(snapshot_swipe_state.finish_current_x, snapshot_swipe_state.finish_next_x);
+    snapshot_swipe_state.component->wait_for_direct_frame_presented(50);
   }
   snapshot_swipe_apply_final_roots();
+  if (direct_render) {
+    auto *component = snapshot_swipe_state.component;
+    s_snapshot_swipe_active = false;
+    s_snapshot_direct_active = false;
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(component->get_disp());
+    component->wait_for_direct_frame_presented(50);
+    snapshot_swipe_cleanup();
+    return;
+  }
   snapshot_swipe_cleanup();
   lv_obj_invalidate(lv_screen_active());
 }
