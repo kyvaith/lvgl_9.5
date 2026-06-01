@@ -668,13 +668,46 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
   };
 
-  auto copy_visible = [&](uint8_t *dst, const lv_draw_buf_t *src, int image_x) {
+  auto copy_visible = [&](uint8_t *dst, const lv_draw_buf_t *src, int image_x) -> bool {
     const int32_t dst_x1 = std::max<int32_t>(0, image_x);
     const int32_t dst_x2 = std::min<int32_t>(this->width_, image_x + width);
     if (dst_x2 <= dst_x1)
-      return;
+      return false;
     const int32_t src_x = dst_x1 - image_x;
     const size_t copy_bytes = (size_t) (dst_x2 - dst_x1) * BYTES_PER_PIXEL;
+#ifdef USE_LVGL_PPA
+    if (s_display_srm_client != nullptr) {
+      ppa_srm_oper_config_t cfg = {};
+      cfg.in.buffer = src->data;
+      cfg.in.pic_w = src->header.w;
+      cfg.in.pic_h = src->header.h;
+      cfg.in.block_w = dst_x2 - dst_x1;
+      cfg.in.block_h = this->height_;
+      cfg.in.block_offset_x = src_x;
+      cfg.in.block_offset_y = 0;
+      cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
+      cfg.out.buffer = dst;
+      cfg.out.buffer_size = this->buf_bytes_;
+      cfg.out.pic_w = this->width_;
+      cfg.out.pic_h = this->height_;
+      cfg.out.block_offset_x = dst_x1;
+      cfg.out.block_offset_y = 0;
+      cfg.out.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
+      cfg.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+      cfg.scale_x = 1.0f;
+      cfg.scale_y = 1.0f;
+      cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+      cfg.mode = PPA_TRANS_MODE_BLOCKING;
+      esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
+      if (ret == ESP_OK)
+        return false;
+      static bool warned = false;
+      if (!warned) {
+        ESP_LOGW(TAG, "snapshot direct: PPA copy failed (%d), using CPU fallback", ret);
+        warned = true;
+      }
+    }
+#endif
     const size_t src_stride = src->header.stride;
     const uint8_t *src_row = src->data + (size_t) src_x * BYTES_PER_PIXEL;
     uint8_t *dst_row = dst + (size_t) dst_x1 * BYTES_PER_PIXEL;
@@ -683,12 +716,15 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       src_row += src_stride;
       dst_row += row_bytes;
     }
+    return true;
   };
 
   auto render_to = [&](uint8_t *dst) {
-    copy_visible(dst, current, current_x);
-    copy_visible(dst, next, next_x);
-    sync_range(dst, fb_bytes);
+    bool needs_sync = false;
+    needs_sync |= copy_visible(dst, current, current_x);
+    needs_sync |= copy_visible(dst, next, next_x);
+    if (needs_sync)
+      sync_range(dst, fb_bytes);
   };
 
   render_to(this->draw_buf_);
