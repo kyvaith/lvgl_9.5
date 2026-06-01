@@ -19,6 +19,8 @@
 #include "esp_timer.h"
 extern "C" {
 void lv_draw_ppa_init(void);
+uint32_t lv_draw_ppa_get_fill_task_count(void);
+uint32_t lv_draw_ppa_get_img_task_count(void);
 void lvgl_port_ppa_v9_init(lv_display_t *display);
 }
 #endif
@@ -1139,8 +1141,14 @@ void LvglComponent::loop() {
       uint32_t free_psram_kb = 0;
       uint32_t free_internal_kb = 0;
 #endif
+      uint32_t ppa_fill_tasks = 0;
+      uint32_t ppa_img_tasks = 0;
+#ifdef USE_LVGL_PPA
+      ppa_fill_tasks = lv_draw_ppa_get_fill_task_count();
+      ppa_img_tasks = lv_draw_ppa_get_img_task_count();
+#endif
       ESP_LOGI(TAG,
-               "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u",
+               "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u ppa=%u/%u",
                (unsigned)cpu_pct,
                (unsigned long long)cpu_us,
                (unsigned long long)this->perf_flush_us_,
@@ -1151,7 +1159,9 @@ void LvglComponent::loop() {
                (unsigned long long)(this->perf_flush_px_ / 1000ULL),
                (unsigned)free_psram_kb,
                (unsigned)free_internal_kb,
-               (unsigned)s_direct_mode_active);
+               (unsigned)s_direct_mode_active,
+               (unsigned)ppa_fill_tasks,
+               (unsigned)ppa_img_tasks);
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
@@ -1411,6 +1421,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   lv_obj_add_flag(snapshot_swipe_state.next_img, LV_OBJ_FLAG_CLICKABLE);
   snapshot_swipe_align(snapshot_swipe_state.current_img, 0);
   snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+  snapshot_swipe_align(snapshot_swipe_state.layer, 0);
   lv_obj_move_foreground(snapshot_swipe_state.layer);
 
   lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
@@ -1423,8 +1434,9 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
 }
 
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
-  snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
-  snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+  if (snapshot_swipe_state.layer == nullptr)
+    return;
+  snapshot_swipe_align(snapshot_swipe_state.layer, current_x);
 }
 
 extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms, bool commit) {
@@ -1436,8 +1448,7 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
   snapshot_swipe_state.finish_next_x = next_x;
   snapshot_swipe_state.commit = commit;
   if (duration_ms == 0) {
-    snapshot_swipe_align(snapshot_swipe_state.current_img, current_x);
-    snapshot_swipe_align(snapshot_swipe_state.next_img, next_x);
+    snapshot_swipe_align(snapshot_swipe_state.layer, current_x);
     snapshot_swipe_finish_now();
     return;
   }
@@ -1448,12 +1459,8 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
   lv_anim_set_duration(&anim, duration_ms);
   lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
 
-  lv_anim_set_var(&anim, snapshot_swipe_state.current_img);
-  lv_anim_set_values(&anim, lv_obj_get_x(snapshot_swipe_state.current_img), current_x);
-  lv_anim_start(&anim);
-
-  lv_anim_set_var(&anim, snapshot_swipe_state.next_img);
-  lv_anim_set_values(&anim, lv_obj_get_x(snapshot_swipe_state.next_img), next_x);
+  lv_anim_set_var(&anim, snapshot_swipe_state.layer);
+  lv_anim_set_values(&anim, lv_obj_get_x(snapshot_swipe_state.layer), current_x);
   lv_anim_set_completed_cb(&anim, snapshot_swipe_anim_completed_cb);
   lv_anim_start(&anim);
 }

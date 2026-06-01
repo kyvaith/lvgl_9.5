@@ -17,6 +17,8 @@
 #define PPA_BUF_ALIGN     16  /* PPA needs at least 16-byte aligned buffers (128-bit burst) */
 
 static const char * TAG = "ppa_draw";
+static uint32_t s_ppa_fill_tasks = 0;
+static uint32_t s_ppa_img_tasks = 0;
 
 /* Check if a draw buffer is suitable for PPA (non-NULL, aligned, has data) */
 static inline bool ppa_buf_usable(lv_draw_buf_t * buf)
@@ -88,6 +90,16 @@ void lv_draw_ppa_deinit(void)
 {
 }
 
+uint32_t lv_draw_ppa_get_fill_task_count(void)
+{
+    return s_ppa_fill_tasks;
+}
+
+uint32_t lv_draw_ppa_get_img_task_count(void)
+{
+    return s_ppa_img_tasks;
+}
+
 /**********************
  *   STATIC FUNCTIONS
  **********************/
@@ -104,8 +116,8 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
             if(!ppa_buf_usable(draw_buf)) return 0;
             if(!ppa_dest_cf_supported((lv_color_format_t)draw_buf->header.cf)) return 0;
 
-            if(t->preference_score > 70) {
-                t->preference_score = 70;
+            if(t->preference_score > 40) {
+                t->preference_score = 40;
                 t->preferred_draw_unit_id = draw_unit->idx;
             }
             return 1;
@@ -131,8 +143,8 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
                 if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
 
                 /* SRM rotation gets higher priority than software */
-                if(t->preference_score > 50) {
-                    t->preference_score = 50;
+                if(t->preference_score > 30) {
+                    t->preference_score = 30;
                     t->preferred_draw_unit_id = draw_unit->idx;
                 }
                 return 1;
@@ -150,8 +162,8 @@ static int32_t ppa_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * t)
             if(!ppa_buf_usable(dest_buf)) return 0;
             if(!ppa_dest_cf_supported((lv_color_format_t)dest_buf->header.cf)) return 0;
 
-            if(t->preference_score > 70) {
-                t->preference_score = 70;
+            if(t->preference_score > 30) {
+                t->preference_score = 30;
                 t->preferred_draw_unit_id = draw_unit->idx;
             }
             return 1;
@@ -203,9 +215,11 @@ static int32_t ppa_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 
             switch(t->type) {
                 case LV_DRAW_TASK_TYPE_FILL:
+                    s_ppa_fill_tasks++;
                     lv_draw_ppa_fill(t, (lv_draw_fill_dsc_t *)t->draw_dsc, &t->area);
                     break;
                 case LV_DRAW_TASK_TYPE_IMAGE: {
+                    s_ppa_img_tasks++;
                     lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
 #ifdef LV_USE_PPA_IMG
                     if(img_dsc->rotation != 0) {
