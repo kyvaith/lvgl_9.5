@@ -1776,6 +1776,12 @@ void snapshot_swipe_anim_completed_cb(lv_anim_t *anim) {
 }
 
 void snapshot_swipe_finish_now() {
+  if (snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr) {
+    // Prime the inactive framebuffer with the exact final snapshot frame before
+    // LVGL resumes. Otherwise the first real-page refresh can briefly present
+    // an older buffer and flash between the snapshot compositor and LVGL.
+    snapshot_swipe_render_direct_frame(snapshot_swipe_state.finish_current_x, snapshot_swipe_state.finish_next_x);
+  }
   snapshot_swipe_apply_final_roots();
   snapshot_swipe_cleanup();
   lv_obj_invalidate(lv_screen_active());
