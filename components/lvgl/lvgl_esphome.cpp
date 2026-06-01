@@ -761,20 +761,25 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
 #endif
 }
 
-bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width,
+bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int scale,
                                                           int initial_next_x) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32) && defined(USE_LVGL_PPA)
   uint64_t t0 = esp_timer_get_time();
   if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || panorama == nullptr || s_display_srm_client == nullptr)
     return false;
-  if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0 || initial_next_x == 0)
+  if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0 || initial_next_x == 0 || scale <= 0)
+    return false;
+  if ((this->width_ % scale) != 0 || (this->height_ % scale) != 0)
     return false;
 
   constexpr size_t OUT_BYTES_PER_PIXEL = 3;
   constexpr size_t IN_BYTES_PER_PIXEL = 2;
-  const int panorama_width = width * 2;
+  const int source_width = width / scale;
+  const int source_height = this->height_ / scale;
+  const int panorama_width = source_width * 2;
   int window_x = initial_next_x > 0 ? -current_x : width - current_x;
   window_x = std::clamp(window_x, 0, width);
+  const int source_x = std::clamp(window_x / scale, 0, source_width);
 
   const size_t fb_bytes = (size_t) this->width_ * this->height_ * OUT_BYTES_PER_PIXEL;
   if (this->buf_bytes_ < fb_bytes)
@@ -784,10 +789,10 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = const_cast<uint8_t *>(panorama);
   cfg.in.pic_w = panorama_width;
-  cfg.in.pic_h = this->height_;
-  cfg.in.block_w = width;
-  cfg.in.block_h = this->height_;
-  cfg.in.block_offset_x = window_x;
+  cfg.in.pic_h = source_height;
+  cfg.in.block_w = source_width;
+  cfg.in.block_h = source_height;
+  cfg.in.block_offset_x = source_x;
   cfg.in.block_offset_y = 0;
   cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
   cfg.out.buffer = target;
@@ -798,8 +803,8 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   cfg.out.block_offset_y = 0;
   cfg.out.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
   cfg.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
-  cfg.scale_x = 1.0f;
-  cfg.scale_y = 1.0f;
+  cfg.scale_x = (float) scale;
+  cfg.scale_y = (float) scale;
   cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
   cfg.mode = PPA_TRANS_MODE_BLOCKING;
 
@@ -830,9 +835,9 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
     last_log_us = now_us;
   if (now_us - last_log_us >= 1000000ULL) {
     uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
-    ESP_LOGI(TAG, "snapshot panorama: fps=%u avg=%lluus max=%uus src=%uKB dst=%uKB", (unsigned) fps,
+    ESP_LOGI(TAG, "snapshot panorama: fps=%u avg=%lluus max=%uus scale=%dx src=%uKB dst=%uKB", (unsigned) fps,
              (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us,
-             (unsigned) (((size_t) panorama_width * this->height_ * IN_BYTES_PER_PIXEL) / 1024),
+             scale, (unsigned) (((size_t) panorama_width * source_height * IN_BYTES_PER_PIXEL) / 1024),
              (unsigned) (fb_bytes / 1024));
     last_log_us = now_us;
     frames = 0;
@@ -1426,6 +1431,7 @@ struct SnapshotSwipeState {
   bool panorama_render{false};
   uint8_t *panorama_buf{nullptr};
   size_t panorama_size{0};
+  int panorama_scale{1};
   int panorama_next_x{0};
   LvglComponent *component{nullptr};
 };
@@ -1435,10 +1441,21 @@ struct SnapshotCacheEntry {
   lv_draw_buf_t *buf{nullptr};
 };
 
+struct SnapshotPanoramaCacheEntry {
+  lv_obj_t *left{nullptr};
+  lv_obj_t *right{nullptr};
+  uint8_t *buf{nullptr};
+  size_t size{0};
+  int width{0};
+  int scale{1};
+};
+
 SnapshotSwipeState snapshot_swipe_state;
 SnapshotCacheEntry snapshot_cache[4];
+SnapshotPanoramaCacheEntry snapshot_panorama_cache[4];
 
 constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
+constexpr int SNAPSHOT_PANORAMA_SCALE = 2;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
@@ -1448,10 +1465,34 @@ lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   return nullptr;
 }
 
+void snapshot_panorama_free_entry(SnapshotPanoramaCacheEntry &entry) {
+#ifdef USE_ESP32
+  if (entry.buf != nullptr) {
+    heap_caps_free(entry.buf);
+    entry.buf = nullptr;
+  }
+#endif
+  entry.left = nullptr;
+  entry.right = nullptr;
+  entry.size = 0;
+  entry.width = 0;
+  entry.scale = 1;
+}
+
+void snapshot_panorama_cache_invalidate(lv_obj_t *obj) {
+  if (obj == nullptr)
+    return;
+  for (auto &entry : snapshot_panorama_cache) {
+    if (entry.left == obj || entry.right == obj)
+      snapshot_panorama_free_entry(entry);
+  }
+}
+
 void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
   SnapshotCacheEntry *slot = nullptr;
   for (auto &entry : snapshot_cache) {
     if (entry.obj == obj) {
+      snapshot_panorama_cache_invalidate(obj);
       if (entry.buf != nullptr)
         lv_draw_buf_destroy(entry.buf);
       entry.buf = buf;
@@ -1462,84 +1503,113 @@ void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
   }
   if (slot == nullptr)
     slot = &snapshot_cache[0];
+  snapshot_panorama_cache_invalidate(slot->obj);
   if (slot->buf != nullptr)
     lv_draw_buf_destroy(slot->buf);
   slot->obj = obj;
   slot->buf = buf;
 }
 
-void snapshot_swipe_free_panorama() {
-#ifdef USE_ESP32
-  if (snapshot_swipe_state.panorama_buf != nullptr) {
-    heap_caps_free(snapshot_swipe_state.panorama_buf);
-    snapshot_swipe_state.panorama_buf = nullptr;
-  }
-#endif
+void snapshot_swipe_clear_panorama() {
+  snapshot_swipe_state.panorama_buf = nullptr;
   snapshot_swipe_state.panorama_size = 0;
+  snapshot_swipe_state.panorama_scale = 1;
   snapshot_swipe_state.panorama_next_x = 0;
   snapshot_swipe_state.panorama_render = false;
 }
 
-static inline void snapshot_swipe_rgb888_to_rgb565_row(const uint8_t *src, uint8_t *dst, int width) {
+static inline void snapshot_swipe_rgb888_to_rgb565_scaled_row(const uint8_t *src, uint8_t *dst, int width, int scale) {
   for (int x = 0; x < width; x++) {
-    const uint8_t r = src[x * 3 + 0];
-    const uint8_t g = src[x * 3 + 1];
-    const uint8_t b = src[x * 3 + 2];
+    const int src_x = x * scale;
+    const uint8_t r = src[src_x * 3 + 0];
+    const uint8_t g = src[src_x * 3 + 1];
+    const uint8_t b = src[src_x * 3 + 2];
     const uint16_t rgb565 = ((uint16_t) (r & 0xF8) << 8) | ((uint16_t) (g & 0xFC) << 3) | (uint16_t) (b >> 3);
     dst[x * 2 + 0] = rgb565 & 0xFF;
     dst[x * 2 + 1] = rgb565 >> 8;
   }
 }
 
-bool snapshot_swipe_build_panorama_rgb565() {
+SnapshotPanoramaCacheEntry *snapshot_panorama_cache_find(lv_obj_t *left, lv_obj_t *right, int width, int scale) {
+  for (auto &entry : snapshot_panorama_cache) {
+    if (entry.left == left && entry.right == right && entry.width == width && entry.scale == scale &&
+        entry.buf != nullptr)
+      return &entry;
+  }
+  return nullptr;
+}
+
+SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, lv_obj_t *right_obj, int width) {
 #if defined(USE_ESP32) && LV_COLOR_DEPTH == 32
-  snapshot_swipe_free_panorama();
-  auto &state = snapshot_swipe_state;
-  if (state.current_buf == nullptr || state.next_buf == nullptr || state.width <= 0 || state.next_x == 0)
-    return false;
-  if (state.current_buf->data == nullptr || state.next_buf->data == nullptr)
-    return false;
-  if (state.current_buf->header.cf != LV_COLOR_FORMAT_RGB888 || state.next_buf->header.cf != LV_COLOR_FORMAT_RGB888)
-    return false;
-  const int width = state.width;
-  const int height = state.current_buf->header.h;
-  if (state.current_buf->header.w < width || state.next_buf->header.w < width || state.next_buf->header.h < height)
-    return false;
+  if (left_obj == nullptr || right_obj == nullptr || width <= 0)
+    return nullptr;
+  constexpr int scale = SNAPSHOT_PANORAMA_SCALE;
+  if (auto *cached = snapshot_panorama_cache_find(left_obj, right_obj, width, scale))
+    return cached;
+
+  auto *left = snapshot_cache_find(left_obj);
+  auto *right = snapshot_cache_find(right_obj);
+  if (left == nullptr || right == nullptr)
+    return nullptr;
+  if (left->data == nullptr || right->data == nullptr)
+    return nullptr;
+  if (left->header.cf != LV_COLOR_FORMAT_RGB888 || right->header.cf != LV_COLOR_FORMAT_RGB888)
+    return nullptr;
+  const int height = left->header.h;
+  if (left->header.w < width || right->header.w < width || right->header.h < height)
+    return nullptr;
+  if ((width % scale) != 0 || (height % scale) != 0)
+    return nullptr;
 
   constexpr size_t CACHE_ALIGN = 128;
   constexpr size_t BYTES_PER_PIXEL = 2;
-  const int panorama_width = width * 2;
+  const int scaled_width = width / scale;
+  const int scaled_height = height / scale;
+  const int panorama_width = scaled_width * 2;
   const size_t panorama_stride = (size_t) panorama_width * BYTES_PER_PIXEL;
-  const size_t panorama_size = panorama_stride * height;
+  const size_t panorama_size = panorama_stride * scaled_height;
   const size_t aligned_size = (panorama_size + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
   auto *panorama = static_cast<uint8_t *>(
       heap_caps_aligned_alloc(CACHE_ALIGN, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (panorama == nullptr) {
     ESP_LOGW(TAG, "snapshot panorama: allocation failed (%u bytes)", (unsigned) aligned_size);
-    return false;
+    return nullptr;
   }
 
-  const bool next_on_right = state.next_x > 0;
-  const lv_draw_buf_t *left = next_on_right ? state.current_buf : state.next_buf;
-  const lv_draw_buf_t *right = next_on_right ? state.next_buf : state.current_buf;
   const uint64_t t0 = esp_timer_get_time();
-  for (int y = 0; y < height; y++) {
-    const uint8_t *left_row = left->data + (size_t) y * left->header.stride;
-    const uint8_t *right_row = right->data + (size_t) y * right->header.stride;
+  for (int y = 0; y < scaled_height; y++) {
+    const int src_y = y * scale;
+    const uint8_t *left_row = left->data + (size_t) src_y * left->header.stride;
+    const uint8_t *right_row = right->data + (size_t) src_y * right->header.stride;
     uint8_t *dst_row = panorama + (size_t) y * panorama_stride;
-    snapshot_swipe_rgb888_to_rgb565_row(left_row, dst_row, width);
-    snapshot_swipe_rgb888_to_rgb565_row(right_row, dst_row + (size_t) width * BYTES_PER_PIXEL, width);
+    snapshot_swipe_rgb888_to_rgb565_scaled_row(left_row, dst_row, scaled_width, scale);
+    snapshot_swipe_rgb888_to_rgb565_scaled_row(right_row, dst_row + (size_t) scaled_width * BYTES_PER_PIXEL,
+                                              scaled_width, scale);
   }
   esp_cache_msync(panorama, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
-  state.panorama_buf = panorama;
-  state.panorama_size = aligned_size;
-  state.panorama_next_x = state.next_x;
-  ESP_LOGI(TAG, "snapshot panorama: prepared RGB565 %dx%d (%u KB) in %lluus", panorama_width, height,
-           (unsigned) (aligned_size / 1024), (unsigned long long) (esp_timer_get_time() - t0));
-  return true;
+  SnapshotPanoramaCacheEntry *slot = nullptr;
+  for (auto &entry : snapshot_panorama_cache) {
+    if (entry.buf == nullptr) {
+      slot = &entry;
+      break;
+    }
+  }
+  if (slot == nullptr)
+    slot = &snapshot_panorama_cache[0];
+  snapshot_panorama_free_entry(*slot);
+  slot->left = left_obj;
+  slot->right = right_obj;
+  slot->buf = panorama;
+  slot->size = aligned_size;
+  slot->width = width;
+  slot->scale = scale;
+  ESP_LOGI(TAG, "snapshot panorama: cached RGB565 %dx%d scale=%dx (%u KB) in %lluus", panorama_width,
+           scaled_height, scale, (unsigned) (aligned_size / 1024),
+           (unsigned long long) (esp_timer_get_time() - t0));
+  return slot;
 #else
-  return false;
+  return nullptr;
 #endif
 }
 
@@ -1549,6 +1619,7 @@ bool snapshot_swipe_render_direct_frame(int current_x, int next_x) {
     return false;
   if (state.panorama_render && state.panorama_buf != nullptr &&
       state.component->snapshot_swipe_direct_render_panorama(state.panorama_buf, current_x, state.width,
+                                                            state.panorama_scale,
                                                             state.panorama_next_x)) {
     return true;
   }
@@ -1585,7 +1656,7 @@ void snapshot_swipe_cleanup() {
       lv_draw_buf_destroy(snapshot_swipe_state.next_buf);
     snapshot_swipe_state.next_buf = nullptr;
   }
-  snapshot_swipe_free_panorama();
+  snapshot_swipe_clear_panorama();
   snapshot_swipe_state.current_root = nullptr;
   snapshot_swipe_state.next_root = nullptr;
   snapshot_swipe_state.owns_current_buf = false;
@@ -1597,7 +1668,6 @@ void snapshot_swipe_cleanup() {
   snapshot_swipe_state.width = 0;
   snapshot_swipe_state.commit = false;
   snapshot_swipe_state.direct_render = false;
-  snapshot_swipe_state.panorama_render = false;
   snapshot_swipe_state.component = nullptr;
 }
 
@@ -1715,6 +1785,20 @@ extern "C" bool lvgl_esphome_snapshot_cache_page(lv_obj_t *obj) {
 #endif
 }
 
+extern "C" bool lvgl_esphome_snapshot_cache_pair(lv_obj_t *left, lv_obj_t *right, int width) {
+#if LV_USE_SNAPSHOT
+  if (left == nullptr || right == nullptr)
+    return false;
+  if (snapshot_cache_find(left) == nullptr && !lvgl_esphome_snapshot_cache_page(left))
+    return false;
+  if (snapshot_cache_find(right) == nullptr && !lvgl_esphome_snapshot_cache_page(right))
+    return false;
+  return snapshot_panorama_cache_prepare(left, right, width) != nullptr;
+#else
+  return false;
+#endif
+}
+
 extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x) {
 #if LV_USE_SNAPSHOT
   snapshot_swipe_cleanup();
@@ -1757,10 +1841,16 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   auto *component = disp == nullptr ? nullptr : static_cast<LvglComponent *>(lv_display_get_user_data(disp));
   if (component != nullptr) {
     snapshot_swipe_state.component = component;
-    if (snapshot_swipe_build_panorama_rgb565()) {
+    lv_obj_t *left_obj = next_x > 0 ? current : next;
+    lv_obj_t *right_obj = next_x > 0 ? next : current;
+    if (auto *panorama = snapshot_panorama_cache_prepare(left_obj, right_obj, width)) {
+      snapshot_swipe_state.panorama_buf = panorama->buf;
+      snapshot_swipe_state.panorama_size = panorama->size;
+      snapshot_swipe_state.panorama_scale = panorama->scale;
+      snapshot_swipe_state.panorama_next_x = next_x;
       snapshot_swipe_state.panorama_render = true;
       if (!snapshot_swipe_render_direct_frame(0, next_x)) {
-        snapshot_swipe_free_panorama();
+        snapshot_swipe_clear_panorama();
       }
     }
     if (snapshot_swipe_state.panorama_render || snapshot_swipe_render_direct_frame(0, next_x)) {

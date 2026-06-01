@@ -33,6 +33,7 @@ extern "C" uint32_t lvgl_esphome_get_loop_max_ms(void);
 extern "C" uint32_t lvgl_esphome_get_flush_max_ms(void);
 extern "C" uint32_t lvgl_esphome_get_invalidated_kpx(void);
 extern "C" bool lvgl_esphome_snapshot_cache_page(lv_obj_t *obj);
+extern "C" bool lvgl_esphome_snapshot_cache_pair(lv_obj_t *left, lv_obj_t *right, int width);
 extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x);
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x);
 extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms, bool commit);
@@ -229,7 +230,8 @@ class LvglComponent : public PollingComponent {
   bool is_loop_started() const { return this->loop_started_; }
   void record_invalidated_area(const lv_area_t *area);
   bool snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x, int width);
-  bool snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int initial_next_x);
+  bool snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int scale,
+                                             int initial_next_x);
 
  protected:
   void draw_end_();
