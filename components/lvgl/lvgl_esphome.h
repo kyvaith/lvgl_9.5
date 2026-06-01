@@ -228,6 +228,7 @@ class LvglComponent : public PollingComponent {
   // Check if loop() has started - safe to perform LVGL operations
   bool is_loop_started() const { return this->loop_started_; }
   void record_invalidated_area(const lv_area_t *area);
+  bool snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x, int width);
 
  protected:
   void draw_end_();

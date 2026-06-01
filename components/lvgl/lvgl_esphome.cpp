@@ -12,11 +12,13 @@
 #ifdef USE_ESP32
 #include "esp_cache.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #endif
 
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
-#include "esp_timer.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 uint32_t lv_draw_ppa_get_fill_task_count(void);
@@ -28,6 +30,7 @@ void lvgl_port_ppa_v9_init(lv_display_t *display);
 #ifdef USE_LVGL_FPS_BENCHMARK
 extern "C" {
 void lvgl_fps_attach_v2(lv_display_t *display);
+void lvgl_esphome_note_frame(void);
 }
 #endif
 
@@ -47,6 +50,7 @@ static volatile uint32_t s_loop_max_ms = 0;
 static volatile uint32_t s_flush_max_ms = 0;
 static volatile uint32_t s_invalidated_kpx = 0;
 static volatile bool s_snapshot_swipe_active = false;
+static volatile bool s_snapshot_direct_active = false;
 
 }  // namespace esphome::lvgl
 
@@ -634,6 +638,70 @@ void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *co
 #endif
 }
 
+bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x,
+                                                 int width) {
+#if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
+  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || current == nullptr || next == nullptr)
+    return false;
+  if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0)
+    return false;
+  if (current->data == nullptr || next->data == nullptr)
+    return false;
+  if (current->header.cf != LV_COLOR_FORMAT_RGB888 || next->header.cf != LV_COLOR_FORMAT_RGB888)
+    return false;
+  if (current->header.w < this->width_ || next->header.w < this->width_ ||
+      current->header.h < this->height_ || next->header.h < this->height_)
+    return false;
+
+  constexpr size_t BYTES_PER_PIXEL = 3;
+  constexpr uintptr_t CACHE_ALIGN = 128;
+  const size_t row_bytes = (size_t) this->width_ * BYTES_PER_PIXEL;
+  const size_t fb_bytes = (size_t) this->width_ * this->height_ * BYTES_PER_PIXEL;
+  if (this->buf_bytes_ < fb_bytes)
+    return false;
+
+  auto sync_range = [](uint8_t *ptr, size_t len) {
+    uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(CACHE_ALIGN - 1);
+    uintptr_t end = (reinterpret_cast<uintptr_t>(ptr) + len + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+    if (end > start)
+      esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+  };
+
+  auto copy_visible = [&](uint8_t *dst, const lv_draw_buf_t *src, int image_x) {
+    const int32_t dst_x1 = std::max<int32_t>(0, image_x);
+    const int32_t dst_x2 = std::min<int32_t>(this->width_, image_x + width);
+    if (dst_x2 <= dst_x1)
+      return;
+    const int32_t src_x = dst_x1 - image_x;
+    const size_t copy_bytes = (size_t) (dst_x2 - dst_x1) * BYTES_PER_PIXEL;
+    const size_t src_stride = src->header.stride;
+    const uint8_t *src_row = src->data + (size_t) src_x * BYTES_PER_PIXEL;
+    uint8_t *dst_row = dst + (size_t) dst_x1 * BYTES_PER_PIXEL;
+    for (int32_t y = 0; y < this->height_; y++) {
+      memcpy(dst_row, src_row, copy_bytes);
+      src_row += src_stride;
+      dst_row += row_bytes;
+    }
+  };
+
+  auto render_to = [&](uint8_t *dst) {
+    copy_visible(dst, current, current_x);
+    copy_visible(dst, next, next_x);
+    sync_range(dst, fb_bytes);
+  };
+
+  render_to(this->draw_buf_);
+  if (this->draw_buf2_ != nullptr && this->draw_buf2_ != this->draw_buf_)
+    render_to(this->draw_buf2_);
+#ifdef USE_LVGL_FPS_BENCHMARK
+  lvgl_esphome_note_frame();
+#endif
+  return true;
+#else
+  return false;
+#endif
+}
+
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
   parent->add_on_idle_callback([this](uint32_t idle_time) {
     if (!this->is_idle_ && idle_time > this->timeout_.value()) {
@@ -1108,6 +1176,9 @@ void LvglComponent::loop() {
     if (this->paused_ && this->show_snow_)
       this->write_random_();
   } else {
+    if (s_snapshot_direct_active) {
+      return;
+    }
     // Time the LVGL handler. flush_cb_ separately accumulates the DSI
     // DMA wait into perf_flush_us_; subtract it so the reported CPU%%
     // counts only real render work (matches lvgl_camera_display's
@@ -1204,7 +1275,12 @@ struct SnapshotSwipeState {
   bool owns_next_buf{false};
   int finish_current_x{0};
   int finish_next_x{0};
+  int current_x{0};
+  int next_x{0};
+  int width{0};
   bool commit{false};
+  bool direct_render{false};
+  LvglComponent *component{nullptr};
 };
 
 struct SnapshotCacheEntry {
@@ -1247,6 +1323,7 @@ void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
 
 void snapshot_swipe_cleanup() {
   s_snapshot_swipe_active = false;
+  s_snapshot_direct_active = false;
   if (snapshot_swipe_state.cleanup_timer != nullptr) {
     lv_timer_delete(snapshot_swipe_state.cleanup_timer);
     snapshot_swipe_state.cleanup_timer = nullptr;
@@ -1279,7 +1356,12 @@ void snapshot_swipe_cleanup() {
   snapshot_swipe_state.owns_next_buf = false;
   snapshot_swipe_state.finish_current_x = 0;
   snapshot_swipe_state.finish_next_x = 0;
+  snapshot_swipe_state.current_x = 0;
+  snapshot_swipe_state.next_x = 0;
+  snapshot_swipe_state.width = 0;
   snapshot_swipe_state.commit = false;
+  snapshot_swipe_state.direct_render = false;
+  snapshot_swipe_state.component = nullptr;
 }
 
 void snapshot_swipe_align(lv_obj_t *obj, int x) {
@@ -1302,6 +1384,48 @@ void snapshot_swipe_apply_final_roots() {
     lv_obj_align(snapshot_swipe_state.next_root, LV_ALIGN_CENTER, snapshot_swipe_state.finish_next_x, 0);
     lv_obj_clear_flag(snapshot_swipe_state.current_root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(snapshot_swipe_state.next_root, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+int snapshot_swipe_ease_out(int start, int end, uint32_t elapsed_ms, uint32_t duration_ms) {
+  if (duration_ms == 0 || elapsed_ms >= duration_ms)
+    return end;
+  uint32_t t = (elapsed_ms * 1024U) / duration_ms;
+  if (t > 1024U)
+    t = 1024U;
+  uint32_t inv = 1024U - t;
+  uint32_t eased = 1024U - (uint32_t) (((uint64_t) inv * inv * inv) / (1024ULL * 1024ULL));
+  return start + (int) (((int64_t) (end - start) * eased) / 1024);
+}
+
+void snapshot_swipe_direct_animate_to(int current_x, int next_x, uint32_t duration_ms) {
+  if (!snapshot_swipe_state.direct_render || snapshot_swipe_state.component == nullptr)
+    return;
+  int start_current_x = snapshot_swipe_state.current_x;
+  int start_next_x = snapshot_swipe_state.next_x;
+  uint64_t start_us = esp_timer_get_time();
+  uint64_t next_frame_us = start_us;
+  while (true) {
+    uint64_t now_us = esp_timer_get_time();
+    if (now_us < next_frame_us) {
+      uint32_t wait_ms = (uint32_t) ((next_frame_us - now_us) / 1000ULL);
+      if (wait_ms > 0)
+        vTaskDelay(pdMS_TO_TICKS(wait_ms));
+      continue;
+    }
+    uint32_t elapsed_ms = (uint32_t) ((now_us - start_us) / 1000ULL);
+    int frame_current_x = snapshot_swipe_ease_out(start_current_x, current_x, elapsed_ms, duration_ms);
+    int frame_next_x = snapshot_swipe_ease_out(start_next_x, next_x, elapsed_ms, duration_ms);
+    snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
+                                                                 snapshot_swipe_state.next_buf, frame_current_x,
+                                                                 frame_next_x, snapshot_swipe_state.width);
+    snapshot_swipe_state.current_x = frame_current_x;
+    snapshot_swipe_state.next_x = frame_next_x;
+    if (elapsed_ms >= duration_ms)
+      break;
+    next_frame_us += 16666ULL;
+    if (next_frame_us < now_us)
+      next_frame_us = now_us + 16666ULL;
   }
 }
 
@@ -1391,6 +1515,23 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
     return false;
   }
 
+  snapshot_swipe_state.width = width;
+  snapshot_swipe_state.current_x = 0;
+  snapshot_swipe_state.next_x = next_x;
+  auto *disp = lv_obj_get_display(current);
+  auto *component = disp == nullptr ? nullptr : static_cast<LvglComponent *>(lv_display_get_user_data(disp));
+  if (component != nullptr &&
+      component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf, snapshot_swipe_state.next_buf, 0,
+                                              next_x, width)) {
+    snapshot_swipe_state.component = component;
+    snapshot_swipe_state.direct_render = true;
+    s_snapshot_direct_active = true;
+    lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
+    ESP_LOGD(TAG, "snapshot swipe: direct framebuffer compositor active, next_x=%d", next_x);
+    return true;
+  }
+
   snapshot_swipe_state.layer = lv_obj_create(parent);
   if (snapshot_swipe_state.layer == nullptr) {
     ESP_LOGW(TAG, "snapshot swipe: failed to create layer widget");
@@ -1434,12 +1575,37 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
 }
 
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x) {
+  if (snapshot_swipe_state.direct_render && snapshot_swipe_state.component != nullptr) {
+    if (snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
+                                                                     snapshot_swipe_state.next_buf, current_x, next_x,
+                                                                     snapshot_swipe_state.width)) {
+      snapshot_swipe_state.current_x = current_x;
+      snapshot_swipe_state.next_x = next_x;
+    }
+    return;
+  }
   if (snapshot_swipe_state.layer == nullptr)
     return;
   snapshot_swipe_align(snapshot_swipe_state.layer, current_x);
 }
 
 extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms, bool commit) {
+  if (snapshot_swipe_state.direct_render) {
+    snapshot_swipe_state.finish_current_x = current_x;
+    snapshot_swipe_state.finish_next_x = next_x;
+    snapshot_swipe_state.commit = commit;
+    if (duration_ms == 0) {
+      if (snapshot_swipe_state.component != nullptr)
+        snapshot_swipe_state.component->snapshot_swipe_direct_render(snapshot_swipe_state.current_buf,
+                                                                     snapshot_swipe_state.next_buf, current_x, next_x,
+                                                                     snapshot_swipe_state.width);
+      snapshot_swipe_finish_now();
+      return;
+    }
+    snapshot_swipe_direct_animate_to(current_x, next_x, duration_ms);
+    snapshot_swipe_finish_now();
+    return;
+  }
   if (snapshot_swipe_state.current_img == nullptr || snapshot_swipe_state.next_img == nullptr) {
     snapshot_swipe_cleanup();
     return;

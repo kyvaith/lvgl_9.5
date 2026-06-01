@@ -71,6 +71,11 @@ extern "C" uint32_t lvgl_esphome_get_fps(void)
     return s_current_fps;
 }
 
+extern "C" void lvgl_esphome_note_frame(void)
+{
+    s_ctx.frame_counter++;
+}
+
 static void fps_refr_ready_cb(lv_event_t *e)
 {
     (void)e;
