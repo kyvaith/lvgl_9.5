@@ -28,6 +28,7 @@
 
 extern "C" uint32_t lvgl_esphome_get_cpu_pct(void);
 extern "C" uint32_t lvgl_esphome_get_flush_ms(void);
+extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void);
 
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"

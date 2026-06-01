@@ -39,6 +39,7 @@ static const char *const TAG = "lvgl";
 // below to override lv_sysmon's broken FreeRTOS-mode CPU calculation.
 static volatile uint32_t s_cpu_pct = 0;
 static volatile uint32_t s_flush_ms = 0;
+static volatile uint32_t s_direct_mode_active = 0;
 
 }  // namespace esphome::lvgl
 
@@ -49,6 +50,10 @@ extern "C" uint32_t lvgl_esphome_get_cpu_pct(void) {
 
 extern "C" uint32_t lvgl_esphome_get_flush_ms(void) {
   return esphome::lvgl::s_flush_ms;
+}
+
+extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void) {
+  return esphome::lvgl::s_direct_mode_active;
 }
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
@@ -920,6 +925,7 @@ void LvglComponent::setup() {
         mipi_display->get_frame_buffer() != nullptr && mipi_display->get_frame_buffer_size() >= buf_bytes) {
       buffer = mipi_display->get_frame_buffer();
       this->direct_mode_active_ = true;
+      s_direct_mode_active = 1;
       ESP_LOGI(TAG, "LVGL direct mode enabled on MIPI framebuffer (%zu bytes)", buf_bytes);
     } else {
       ESP_LOGW(TAG, "LVGL direct mode requested but unavailable, falling back to partial flush");
