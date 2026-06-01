@@ -27,7 +27,14 @@
 #include <string.h>
 #include <stdlib.h>
 
+extern "C" uint32_t lvgl_esphome_get_perf_logging_enabled(void);
+
 static const char *TAG_FPS = "lvgl";  /* reuse the lvgl tag — known to pass user log filters */
+
+#define FPS_LOGI(...) \
+    do { \
+        if (lvgl_esphome_get_perf_logging_enabled()) ESP_LOGI(__VA_ARGS__); \
+    } while (0)
 
 #define FPS_STARTUP_DELAY_MS         5000
 #define FPS_SAMPLE_PERIOD_MS         500
@@ -112,6 +119,10 @@ extern "C" void lvgl_fps_benchmark_print(void)
         xSemaphoreGive(s_ctx.mutex);
         return;
     }
+    if (!lvgl_esphome_get_perf_logging_enabled()) {
+        xSemaphoreGive(s_ctx.mutex);
+        return;
+    }
 
     uint32_t work[FPS_MAX_SAMPLES];
     memcpy(work, &s_ctx.samples[vs], count * sizeof(uint32_t));
@@ -143,27 +154,27 @@ extern "C" void lvgl_fps_benchmark_print(void)
     else if (iqr_ratio < 150.0f) stab = "Variable";
     else stab = "High Variance";
 
-    ESP_LOGI(TAG_FPS, "========================================");
-    ESP_LOGI(TAG_FPS, "Performance Report");
-    ESP_LOGI(TAG_FPS, "========================================");
-    ESP_LOGI(TAG_FPS, "Samples: %lu (filtered: %lu)",
+    FPS_LOGI(TAG_FPS, "========================================");
+    FPS_LOGI(TAG_FPS, "Performance Report");
+    FPS_LOGI(TAG_FPS, "========================================");
+    FPS_LOGI(TAG_FPS, "Samples: %lu (filtered: %lu)",
              (unsigned long)count, (unsigned long)(total - count));
-    ESP_LOGI(TAG_FPS, "Key Metrics:");
-    ESP_LOGI(TAG_FPS, "  TYPICAL:    %lu fps  (P50, median)", (unsigned long)p50);
-    ESP_LOGI(TAG_FPS, "  GUARANTEED: %lu fps  (P25, 75%% of time)", (unsigned long)p25);
-    ESP_LOGI(TAG_FPS, "  PEAK:       %lu fps  (P90, best 10%%)", (unsigned long)p90);
-    ESP_LOGI(TAG_FPS, "Statistics:");
-    ESP_LOGI(TAG_FPS, "  Average:    %lu fps", (unsigned long)avg);
-    ESP_LOGI(TAG_FPS, "  Range:      %lu - %lu fps", (unsigned long)mn, (unsigned long)mx);
-    ESP_LOGI(TAG_FPS, "  Stability:  %s (IQR: %.1f%%)", stab, iqr_ratio);
-    ESP_LOGI(TAG_FPS, "Distribution: P10=%lu | P25=%lu | P50=%lu | P75=%lu | P90=%lu",
+    FPS_LOGI(TAG_FPS, "Key Metrics:");
+    FPS_LOGI(TAG_FPS, "  TYPICAL:    %lu fps  (P50, median)", (unsigned long)p50);
+    FPS_LOGI(TAG_FPS, "  GUARANTEED: %lu fps  (P25, 75%% of time)", (unsigned long)p25);
+    FPS_LOGI(TAG_FPS, "  PEAK:       %lu fps  (P90, best 10%%)", (unsigned long)p90);
+    FPS_LOGI(TAG_FPS, "Statistics:");
+    FPS_LOGI(TAG_FPS, "  Average:    %lu fps", (unsigned long)avg);
+    FPS_LOGI(TAG_FPS, "  Range:      %lu - %lu fps", (unsigned long)mn, (unsigned long)mx);
+    FPS_LOGI(TAG_FPS, "  Stability:  %s (IQR: %.1f%%)", stab, iqr_ratio);
+    FPS_LOGI(TAG_FPS, "Distribution: P10=%lu | P25=%lu | P50=%lu | P75=%lu | P90=%lu",
              (unsigned long)p10, (unsigned long)p25, (unsigned long)p50,
              (unsigned long)p75, (unsigned long)p90);
-    if (p25 >= 40)      ESP_LOGI(TAG_FPS, "  [EXCELLENT] Smooth animations, high-refresh UI");
-    else if (p25 >= 25) ESP_LOGI(TAG_FPS, "  [GOOD] Standard UI, basic animations");
-    else if (p25 >= 15) ESP_LOGI(TAG_FPS, "  [ACCEPTABLE] Static/simple UI");
-    else                ESP_LOGI(TAG_FPS, "  [LIMITED] Consider optimization or lower resolution");
-    ESP_LOGI(TAG_FPS, "========================================");
+    if (p25 >= 40)      FPS_LOGI(TAG_FPS, "  [EXCELLENT] Smooth animations, high-refresh UI");
+    else if (p25 >= 25) FPS_LOGI(TAG_FPS, "  [GOOD] Standard UI, basic animations");
+    else if (p25 >= 15) FPS_LOGI(TAG_FPS, "  [ACCEPTABLE] Static/simple UI");
+    else                FPS_LOGI(TAG_FPS, "  [LIMITED] Consider optimization or lower resolution");
+    FPS_LOGI(TAG_FPS, "========================================");
 
     xSemaphoreGive(s_ctx.mutex);
 }
@@ -176,7 +187,7 @@ static void fps_sampler_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(FPS_STARTUP_DELAY_MS));
     s_ctx.frame_counter = 0;
     s_ctx.last_sample_us = esp_timer_get_time();
-    ESP_LOGI(TAG_FPS, "Sampler started — collecting up to %d samples (%d ms each)",
+    FPS_LOGI(TAG_FPS, "Sampler started — collecting up to %d samples (%d ms each)",
              FPS_MAX_SAMPLES, FPS_SAMPLE_PERIOD_MS);
 
     while (s_ctx.state != FPS_STATE_DONE) {
@@ -191,7 +202,7 @@ static void fps_sampler_task(void *arg)
         uint32_t fps = (uint32_t)((uint64_t)frames * 1000000ULL / elapsed_us);
         s_current_fps = fps;
 
-        ESP_LOGI(TAG_FPS, "[FPS] Current: %lu fps", (unsigned long)fps);
+        FPS_LOGI(TAG_FPS, "[FPS] Current: %lu fps", (unsigned long)fps);
 
         if (xSemaphoreTake(s_ctx.mutex, portMAX_DELAY) != pdTRUE) continue;
 
@@ -204,7 +215,7 @@ static void fps_sampler_task(void *arg)
                         uint32_t sum = 0;
                         for (int i = 0; i < 5; i++) sum += s_ctx.startup_samples[i];
                         s_ctx.stable_fps_threshold = (uint32_t)(sum / 5 * 0.8f);
-                        ESP_LOGI(TAG_FPS, "[STARTUP] threshold = %lu fps",
+                        FPS_LOGI(TAG_FPS, "[STARTUP] threshold = %lu fps",
                                  (unsigned long)s_ctx.stable_fps_threshold);
                     }
                 }
@@ -214,7 +225,7 @@ static void fps_sampler_task(void *arg)
                         s_ctx.state = FPS_STATE_STABLE;
                         s_ctx.state_counter = 0;
                         s_ctx.valid_sample_start = s_ctx.sample_count;
-                        ESP_LOGI(TAG_FPS, "[STABLE] data collection started");
+                        FPS_LOGI(TAG_FPS, "[STABLE] data collection started");
                     }
                 } else {
                     s_ctx.state_counter = 0;
@@ -247,7 +258,7 @@ static void fps_sampler_task(void *arg)
                         s_ctx.valid_sample_end = s_ctx.sample_count - FPS_CONSECUTIVE_END_REQUIRED;
                         s_ctx.state = FPS_STATE_ENDING;
                         s_ctx.consecutive_low_count = 0;
-                        ESP_LOGI(TAG_FPS, "[ENDING] valid samples: %lu",
+                        FPS_LOGI(TAG_FPS, "[ENDING] valid samples: %lu",
                                  (unsigned long)(s_ctx.valid_sample_end - s_ctx.valid_sample_start));
                     }
                 } else {
@@ -255,7 +266,7 @@ static void fps_sampler_task(void *arg)
                 }
 
                 if (s_ctx.sample_count % 20 == 0) {
-                    ESP_LOGI(TAG_FPS, "[STABLE] collected %lu samples",
+                    FPS_LOGI(TAG_FPS, "[STABLE] collected %lu samples",
                              (unsigned long)s_ctx.sample_count);
                 }
             } else {
@@ -279,7 +290,7 @@ static void fps_sampler_task(void *arg)
     if (!s_ctx.report_printed) {
         s_ctx.report_printed = true;
         lvgl_fps_benchmark_print();
-        ESP_LOGI(TAG_FPS, "Use the 'lvgl_fps_print' service to re-print, "
+        FPS_LOGI(TAG_FPS, "Use the 'lvgl_fps_print' service to re-print, "
                  "or reboot to re-run the benchmark.");
     }
 
@@ -290,7 +301,7 @@ extern "C" void lvgl_fps_attach_v2(lv_display_t *display)
 {
     /* Log unconditionally on entry so we can verify this TU is linked
        and the call site reaches us. */
-    ESP_LOGI(TAG_FPS, ">>> attach() entered, display=%p", display);
+    FPS_LOGI(TAG_FPS, ">>> attach() entered, display=%p", display);
 
     if (!display) {
         ESP_LOGE(TAG_FPS, "display is NULL, aborting");
@@ -309,17 +320,17 @@ extern "C" void lvgl_fps_attach_v2(lv_display_t *display)
         ESP_LOGE(TAG_FPS, "mutex alloc failed");
         return;
     }
-    ESP_LOGI(TAG_FPS, "mutex created, registering REFR_READY cb...");
+    FPS_LOGI(TAG_FPS, "mutex created, registering REFR_READY cb...");
 
     lv_display_add_event_cb(display, fps_refr_ready_cb, LV_EVENT_REFR_READY, NULL);
 
-    ESP_LOGI(TAG_FPS, "cb registered, creating sampler task...");
+    FPS_LOGI(TAG_FPS, "cb registered, creating sampler task...");
     BaseType_t r = xTaskCreate(fps_sampler_task, "lvgl_fps", 4096, NULL, 3, NULL);
     if (r != pdPASS) {
         ESP_LOGE(TAG_FPS, "task create failed (r=%d)", (int)r);
         return;
     }
-    ESP_LOGI(TAG_FPS, "<<< attach() done, warmup %d ms", FPS_STARTUP_DELAY_MS);
+    FPS_LOGI(TAG_FPS, "<<< attach() done, warmup %d ms", FPS_STARTUP_DELAY_MS);
 }
 
 #endif /* USE_LVGL_FPS_BENCHMARK */

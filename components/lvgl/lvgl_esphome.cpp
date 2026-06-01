@@ -52,6 +52,8 @@ static volatile uint32_t s_direct_mode_active = 0;
 static volatile uint32_t s_loop_max_ms = 0;
 static volatile uint32_t s_flush_max_ms = 0;
 static volatile uint32_t s_invalidated_kpx = 0;
+static volatile uint32_t s_perf_logging_enabled = 0;
+static volatile uint32_t s_swipe_logging_enabled = 0;
 static volatile bool s_snapshot_swipe_active = false;
 static volatile bool s_snapshot_direct_active = false;
 
@@ -80,6 +82,22 @@ extern "C" uint32_t lvgl_esphome_get_flush_max_ms(void) {
 
 extern "C" uint32_t lvgl_esphome_get_invalidated_kpx(void) {
   return esphome::lvgl::s_invalidated_kpx;
+}
+
+extern "C" uint32_t lvgl_esphome_get_perf_logging_enabled(void) {
+  return esphome::lvgl::s_perf_logging_enabled;
+}
+
+extern "C" uint32_t lvgl_esphome_get_swipe_logging_enabled(void) {
+  return esphome::lvgl::s_swipe_logging_enabled;
+}
+
+extern "C" void lvgl_esphome_set_perf_logging_enabled(bool enabled) {
+  esphome::lvgl::s_perf_logging_enabled = enabled ? 1 : 0;
+}
+
+extern "C" void lvgl_esphome_set_swipe_logging_enabled(bool enabled) {
+  esphome::lvgl::s_swipe_logging_enabled = enabled ? 1 : 0;
 }
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
@@ -814,8 +832,10 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
     last_log_us = now_us;
   if (now_us - last_log_us >= 1000000ULL) {
     uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
-    ESP_LOGI(TAG, "snapshot direct: fps=%u avg=%lluus max=%uus", (unsigned) fps,
-             (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us);
+    if (s_swipe_logging_enabled) {
+      ESP_LOGI(TAG, "snapshot direct: fps=%u avg=%lluus max=%uus", (unsigned) fps,
+               (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us);
+    }
     last_log_us = now_us;
     frames = 0;
     total_us = 0;
@@ -902,10 +922,12 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
     last_log_us = now_us;
   if (now_us - last_log_us >= 1000000ULL) {
     uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
-    ESP_LOGI(TAG, "snapshot panorama: fps=%u avg=%lluus max=%uus scale=%dx src=%uKB dst=%uKB", (unsigned) fps,
-             (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us,
-             scale, (unsigned) (((size_t) panorama_width * source_height * IN_BYTES_PER_PIXEL) / 1024),
-             (unsigned) (fb_bytes / 1024));
+    if (s_swipe_logging_enabled) {
+      ESP_LOGI(TAG, "snapshot panorama: fps=%u avg=%lluus max=%uus scale=%dx src=%uKB dst=%uKB", (unsigned) fps,
+               (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us,
+               scale, (unsigned) (((size_t) panorama_width * source_height * IN_BYTES_PER_PIXEL) / 1024),
+               (unsigned) (fb_bytes / 1024));
+    }
     last_log_us = now_us;
     frames = 0;
     total_us = 0;
@@ -1362,11 +1384,14 @@ void LvglComponent::setup() {
 #ifdef USE_LVGL_FPS_BENCHMARK
   // Espressif esp_lvgl_adapter FPS sampler — prints a P10/25/50/75/90
   // report after ~200 samples (or sustained low-FPS detection).
-  ESP_LOGI(TAG, "FPS benchmark: calling attach() for disp=%p", this->disp_);
+  if (s_perf_logging_enabled)
+    ESP_LOGI(TAG, "FPS benchmark: calling attach() for disp=%p", this->disp_);
   lvgl_fps_attach_v2(this->disp_);
-  ESP_LOGI(TAG, "FPS benchmark: attach() returned");
+  if (s_perf_logging_enabled)
+    ESP_LOGI(TAG, "FPS benchmark: attach() returned");
 #else
-  ESP_LOGI(TAG, "FPS benchmark: not compiled in (USE_LVGL_FPS_BENCHMARK undefined)");
+  if (s_perf_logging_enabled)
+    ESP_LOGI(TAG, "FPS benchmark: not compiled in (USE_LVGL_FPS_BENCHMARK undefined)");
 #endif
 }
 
@@ -1433,21 +1458,23 @@ void LvglComponent::loop() {
       ppa_fill_tasks = lv_draw_ppa_get_fill_task_count();
       ppa_img_tasks = lv_draw_ppa_get_img_task_count();
 #endif
-      ESP_LOGI(TAG,
-               "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u ppa=%u/%u",
-               (unsigned)cpu_pct,
-               (unsigned long long)cpu_us,
-               (unsigned long long)this->perf_flush_us_,
-               (unsigned)(this->perf_loop_max_us_ / 1000U),
-               (unsigned)(this->perf_flush_max_us_ / 1000U),
-               (unsigned long)this->perf_invalidated_areas_,
-               (unsigned long)(this->perf_invalidated_px_ / 1000ULL),
-               (unsigned long long)(this->perf_flush_px_ / 1000ULL),
-               (unsigned)free_psram_kb,
-               (unsigned)free_internal_kb,
-               (unsigned)s_direct_mode_active,
-               (unsigned)ppa_fill_tasks,
-               (unsigned)ppa_img_tasks);
+      if (s_perf_logging_enabled) {
+        ESP_LOGI(TAG,
+                 "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u ppa=%u/%u",
+                 (unsigned)cpu_pct,
+                 (unsigned long long)cpu_us,
+                 (unsigned long long)this->perf_flush_us_,
+                 (unsigned)(this->perf_loop_max_us_ / 1000U),
+                 (unsigned)(this->perf_flush_max_us_ / 1000U),
+                 (unsigned long)this->perf_invalidated_areas_,
+                 (unsigned long)(this->perf_invalidated_px_ / 1000ULL),
+                 (unsigned long long)(this->perf_flush_px_ / 1000ULL),
+                 (unsigned)free_psram_kb,
+                 (unsigned)free_internal_kb,
+                 (unsigned)s_direct_mode_active,
+                 (unsigned)ppa_fill_tasks,
+                 (unsigned)ppa_img_tasks);
+      }
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
@@ -1672,9 +1699,11 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
   slot->size = aligned_size;
   slot->width = width;
   slot->scale = scale;
-  ESP_LOGI(TAG, "snapshot panorama: cached RGB888 %dx%d scale=%dx (%u KB) in %lluus", panorama_width,
-           scaled_height, scale, (unsigned) (aligned_size / 1024),
-           (unsigned long long) (esp_timer_get_time() - t0));
+  if (s_swipe_logging_enabled) {
+    ESP_LOGI(TAG, "snapshot panorama: cached RGB888 %dx%d scale=%dx (%u KB) in %lluus", panorama_width,
+             scaled_height, scale, (unsigned) (aligned_size / 1024),
+             (unsigned long long) (esp_timer_get_time() - t0));
+  }
   return slot;
 #else
   return nullptr;
@@ -1949,8 +1978,10 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
       s_snapshot_direct_active = true;
       lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(next, LV_OBJ_FLAG_HIDDEN);
-      ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active (%s), next_x=%d",
-               snapshot_swipe_state.panorama_render ? "RGB888 panorama" : "RGB888 strips", next_x);
+      if (s_swipe_logging_enabled) {
+        ESP_LOGI(TAG, "snapshot swipe: direct framebuffer compositor active (%s), next_x=%d",
+                 snapshot_swipe_state.panorama_render ? "RGB888 panorama" : "RGB888 strips", next_x);
+      }
       return true;
     }
     snapshot_swipe_state.component = nullptr;
