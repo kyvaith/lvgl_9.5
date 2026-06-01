@@ -44,6 +44,7 @@ static volatile uint32_t s_direct_mode_active = 0;
 static volatile uint32_t s_loop_max_ms = 0;
 static volatile uint32_t s_flush_max_ms = 0;
 static volatile uint32_t s_invalidated_kpx = 0;
+static volatile bool s_snapshot_swipe_active = false;
 
 }  // namespace esphome::lvgl
 
@@ -554,7 +555,8 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-      this->sync_direct_other_buffer_(area, color_p);
+      if (!s_snapshot_swipe_active)
+        this->sync_direct_other_buffer_(area, color_p);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
@@ -1229,6 +1231,7 @@ void snapshot_cache_store(lv_obj_t *obj, lv_draw_buf_t *buf) {
 }
 
 void snapshot_swipe_cleanup() {
+  s_snapshot_swipe_active = false;
   if (snapshot_swipe_cleanup_timer != nullptr) {
     lv_timer_delete(snapshot_swipe_cleanup_timer);
     snapshot_swipe_cleanup_timer = nullptr;
@@ -1266,6 +1269,7 @@ void snapshot_swipe_cleanup_timer_cb(lv_timer_t *timer) {
   snapshot_swipe_cleanup_timer = nullptr;
   lv_timer_delete(timer);
   snapshot_swipe_cleanup();
+  lv_obj_invalidate(lv_screen_active());
 }
 }  // namespace
 
@@ -1300,6 +1304,7 @@ extern "C" bool lvgl_esphome_snapshot_cache_page(lv_obj_t *obj) {
 extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *next, int width, int next_x) {
 #if LV_USE_SNAPSHOT
   snapshot_swipe_cleanup();
+  s_snapshot_swipe_active = true;
   if (current == nullptr || next == nullptr)
     return false;
 
