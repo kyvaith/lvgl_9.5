@@ -32,11 +32,12 @@ static const char *const TAG = "lvgl";
 // below to override lv_sysmon's broken FreeRTOS-mode CPU calculation.
 static volatile uint32_t s_cpu_pct = 0;
 
+}  // namespace esphome::lvgl
+
 extern "C" uint32_t lvgl_esphome_get_cpu_pct(void) {
   uint32_t cpu = esphome::lvgl::s_cpu_pct;
   return cpu > 100 ? 100 : cpu;
 }
-}  // namespace esphome::lvgl
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
 // -Wl,--wrap=lv_os_get_idle_percent).

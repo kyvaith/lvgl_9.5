@@ -12,11 +12,13 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
 #include "lvgl.h"
 
 /* Attach sampler to a display. Starts after ~5s warmup, auto-stops on
    200 samples or sustained low-FPS plateau, prints the report once. */
 void lvgl_fps_attach_v2(lv_display_t *display);
+uint32_t lvgl_esphome_get_fps(void);
 
 /* Force-print the current report (e.g. from a HA button). Safe to call
    any time after attach; no-op if no samples yet. */

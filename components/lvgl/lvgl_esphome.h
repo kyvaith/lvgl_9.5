@@ -26,6 +26,8 @@
 #include <utility>
 #include <vector>
 
+extern "C" uint32_t lvgl_esphome_get_cpu_pct(void);
+
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"
 #endif  // USE_LVGL_FONT
