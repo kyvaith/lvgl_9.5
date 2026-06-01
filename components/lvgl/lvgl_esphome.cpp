@@ -553,9 +553,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
-      // LVGL is drawing directly into the DPI framebuffer. Avoid copying the
-      // same pixels again through esp_lcd_panel_draw_bitmap(); just maintain
-      // cache coherency and the inactive framebuffer.
+      this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
       this->sync_direct_other_buffer_(area, color_p);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
