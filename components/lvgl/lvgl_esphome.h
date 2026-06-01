@@ -250,6 +250,7 @@ class LvglComponent : public PollingComponent {
 
   uint8_t *draw_buf_{};
   uint8_t *draw_buf2_{};
+  uint8_t *direct_last_flushed_buf_{};
   bool direct_mode_active_{false};
   lv_display_t *disp_{};
   uint16_t width_{};

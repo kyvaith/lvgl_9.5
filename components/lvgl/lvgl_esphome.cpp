@@ -560,6 +560,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
+      this->direct_last_flushed_buf_ = color_p;
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
       this->sync_direct_other_buffer_(area, color_p);
     } else {
@@ -727,9 +728,8 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       sync_range(dst, fb_bytes);
   };
 
-  render_to(this->draw_buf_);
-  if (this->draw_buf2_ != nullptr && this->draw_buf2_ != this->draw_buf_)
-    render_to(this->draw_buf2_);
+  uint8_t *target = this->direct_last_flushed_buf_ != nullptr ? this->direct_last_flushed_buf_ : this->draw_buf_;
+  render_to(target);
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
 #endif
