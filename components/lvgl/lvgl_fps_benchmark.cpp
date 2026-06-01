@@ -64,6 +64,12 @@ typedef struct {
 } fps_ctx_t;
 
 static fps_ctx_t s_ctx;
+static volatile uint32_t s_current_fps = 0;
+
+extern "C" uint32_t lvgl_esphome_get_fps(void)
+{
+    return s_current_fps;
+}
 
 static void fps_refr_ready_cb(lv_event_t *e)
 {
@@ -178,6 +184,7 @@ static void fps_sampler_task(void *arg)
         s_ctx.last_sample_us = now;
         if (elapsed_us == 0) continue;
         uint32_t fps = (uint32_t)((uint64_t)frames * 1000000ULL / elapsed_us);
+        s_current_fps = fps;
 
         ESP_LOGI(TAG_FPS, "[FPS] Current: %lu fps", (unsigned long)fps);
 
