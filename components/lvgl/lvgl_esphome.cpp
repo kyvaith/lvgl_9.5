@@ -428,6 +428,9 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto x1 = area->x1;
   auto y1 = area->y1;
   auto *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+  const auto *src8 = reinterpret_cast<const uint8_t *>(ptr);
+  const bool direct_full_buffer =
+      this->direct_mode_active_ && (src8 == this->draw_buf_ || (this->draw_buf2_ != nullptr && src8 == this->draw_buf2_));
 
 #ifdef USE_LVGL_PPA
   // Try PPA hardware rotation first (zero CPU cost, ~10x faster than SW loops).
@@ -550,6 +553,14 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       break;
 
     default:
+      if (direct_full_buffer) {
+        const int x_pad = this->width_ - x1 - width;
+        for (auto *display : this->displays_) {
+          display->draw_pixels_at(x1, y1, width, height, src8, display::COLOR_ORDER_RGB, LV_BITNESS, this->big_endian_,
+                                  x1, y1, x_pad);
+        }
+        return;
+      }
       dst = ptr;
       break;
   }
@@ -673,6 +684,25 @@ bool LvglComponent::wait_for_direct_frame_presented(uint32_t timeout_ms) {
 #else
   return false;
 #endif
+}
+
+void LvglComponent::realign_direct_buffer_after_manual_present() {
+  if (!this->direct_mode_active_ || this->disp_ == nullptr || this->direct_last_flushed_buf_ == nullptr)
+    return;
+  if (this->disp_->buf_1 == nullptr || this->disp_->buf_2 == nullptr)
+    return;
+
+  lv_draw_buf_t *next_lvgl_buf = nullptr;
+  if (this->disp_->buf_1->data == this->direct_last_flushed_buf_) {
+    next_lvgl_buf = this->disp_->buf_2;
+  } else if (this->disp_->buf_2->data == this->direct_last_flushed_buf_) {
+    next_lvgl_buf = this->disp_->buf_1;
+  }
+
+  if (next_lvgl_buf != nullptr && this->disp_->buf_act != next_lvgl_buf) {
+    ESP_LOGD(TAG, "direct mode: realigning LVGL buf_act away from presented framebuffer");
+    this->disp_->buf_act = next_lvgl_buf;
+  }
 }
 
 bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x,
@@ -1805,6 +1835,7 @@ void snapshot_swipe_finish_now() {
     // an older buffer and flash between the snapshot compositor and LVGL.
     snapshot_swipe_render_direct_frame(snapshot_swipe_state.finish_current_x, snapshot_swipe_state.finish_next_x);
     snapshot_swipe_state.component->wait_for_direct_frame_presented(50);
+    snapshot_swipe_state.component->realign_direct_buffer_after_manual_present();
   }
   snapshot_swipe_apply_final_roots();
   if (direct_render) {

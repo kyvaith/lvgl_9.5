@@ -233,6 +233,7 @@ class LvglComponent : public PollingComponent {
   bool snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int scale,
                                              int initial_next_x);
   bool wait_for_direct_frame_presented(uint32_t timeout_ms);
+  void realign_direct_buffer_after_manual_present();
 
  protected:
   void draw_end_();
