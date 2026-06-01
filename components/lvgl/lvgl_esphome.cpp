@@ -11,6 +11,7 @@
 #endif
 #ifdef USE_ESP32
 #include "esp_cache.h"
+#include "esp_heap_caps.h"
 #endif
 
 #ifdef USE_LVGL_PPA
@@ -40,6 +41,9 @@ static const char *const TAG = "lvgl";
 static volatile uint32_t s_cpu_pct = 0;
 static volatile uint32_t s_flush_ms = 0;
 static volatile uint32_t s_direct_mode_active = 0;
+static volatile uint32_t s_loop_max_ms = 0;
+static volatile uint32_t s_flush_max_ms = 0;
+static volatile uint32_t s_invalidated_kpx = 0;
 
 }  // namespace esphome::lvgl
 
@@ -54,6 +58,18 @@ extern "C" uint32_t lvgl_esphome_get_flush_ms(void) {
 
 extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void) {
   return esphome::lvgl::s_direct_mode_active;
+}
+
+extern "C" uint32_t lvgl_esphome_get_loop_max_ms(void) {
+  return esphome::lvgl::s_loop_max_ms;
+}
+
+extern "C" uint32_t lvgl_esphome_get_flush_max_ms(void) {
+  return esphome::lvgl::s_flush_max_ms;
+}
+
+extern "C" uint32_t lvgl_esphome_get_invalidated_kpx(void) {
+  return esphome::lvgl::s_invalidated_kpx;
 }
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
@@ -244,6 +260,13 @@ static void rounder_cb(lv_event_t *event) {
   // round up the end coordinates
   area->x2 = (area->x2 + draw_rounding) / draw_rounding * draw_rounding - 1;
   area->y2 = (area->y2 + draw_rounding) / draw_rounding * draw_rounding - 1;
+  comp->record_invalidated_area(area);
+}
+
+void LvglComponent::record_invalidated_area(const lv_area_t *area) {
+  uint32_t px = (uint32_t) lv_area_get_width(area) * (uint32_t) lv_area_get_height(area);
+  this->perf_invalidated_px_ += px;
+  this->perf_invalidated_areas_++;
 }
 
 void LvglComponent::render_end_cb(lv_event_t *event) {
@@ -536,6 +559,10 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
     uint64_t dt = esp_timer_get_time() - t0;
+    uint32_t flush_us = (uint32_t) dt;
+    if (flush_us > this->perf_flush_max_us_)
+      this->perf_flush_max_us_ = flush_us;
+    this->perf_flush_px_ += (uint64_t) lv_area_get_width(area) * (uint64_t) lv_area_get_height(area);
     // Track flush wait time so loop() can subtract it when computing
     // CPU%% — the synchronous DMA push isn't real CPU work.
     this->perf_flush_us_ += dt;
@@ -1075,7 +1102,10 @@ void LvglComponent::loop() {
     uint64_t t0 = esp_timer_get_time();
     lv_timer_handler();
     uint64_t t1 = esp_timer_get_time();
-    this->perf_busy_us_ += (t1 - t0);
+    uint64_t loop_dt = t1 - t0;
+    this->perf_busy_us_ += loop_dt;
+    if (loop_dt > this->perf_loop_max_us_)
+      this->perf_loop_max_us_ = (uint32_t) loop_dt;
     uint64_t now_us = t1;
     if (this->perf_window_start_us_ == 0)
       this->perf_window_start_us_ = now_us;
@@ -1088,6 +1118,29 @@ void LvglComponent::loop() {
       if (cpu_pct > 100) cpu_pct = 100;
       s_cpu_pct = cpu_pct;  // publish to __wrap_lv_timer_get_idle / sysmon overlay
       s_flush_ms = (uint32_t) (this->perf_flush_us_ / 1000ULL);
+      s_loop_max_ms = this->perf_loop_max_us_ / 1000U;
+      s_flush_max_ms = this->perf_flush_max_us_ / 1000U;
+      s_invalidated_kpx = (uint32_t) (this->perf_invalidated_px_ / 1000ULL);
+#ifdef USE_ESP32
+      uint32_t free_psram_kb = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024U;
+      uint32_t free_internal_kb = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024U;
+#else
+      uint32_t free_psram_kb = 0;
+      uint32_t free_internal_kb = 0;
+#endif
+      ESP_LOGI(TAG,
+               "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u",
+               (unsigned)cpu_pct,
+               (unsigned long long)cpu_us,
+               (unsigned long long)this->perf_flush_us_,
+               (unsigned)(this->perf_loop_max_us_ / 1000U),
+               (unsigned)(this->perf_flush_max_us_ / 1000U),
+               (unsigned long)this->perf_invalidated_areas_,
+               (unsigned long)(this->perf_invalidated_px_ / 1000ULL),
+               (unsigned long long)(this->perf_flush_px_ / 1000ULL),
+               (unsigned)free_psram_kb,
+               (unsigned)free_internal_kb,
+               (unsigned)s_direct_mode_active);
       // Verbose-only log: enable via 'logs: lvgl: VERBOSE' in YAML if you
       // need the breakdown. Default DEBUG/INFO levels stay silent.
       ESP_LOGV(TAG, "perf: CPU %u%% (render %llu us, flush %llu us / wall %llu us)",
@@ -1097,6 +1150,11 @@ void LvglComponent::loop() {
                (unsigned long long)elapsed_us);
       this->perf_busy_us_ = 0;
       this->perf_flush_us_ = 0;
+      this->perf_invalidated_px_ = 0;
+      this->perf_invalidated_areas_ = 0;
+      this->perf_flush_px_ = 0;
+      this->perf_loop_max_us_ = 0;
+      this->perf_flush_max_us_ = 0;
       this->perf_window_start_us_ = now_us;
     }
   }

@@ -29,6 +29,9 @@
 extern "C" uint32_t lvgl_esphome_get_cpu_pct(void);
 extern "C" uint32_t lvgl_esphome_get_flush_ms(void);
 extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void);
+extern "C" uint32_t lvgl_esphome_get_loop_max_ms(void);
+extern "C" uint32_t lvgl_esphome_get_flush_max_ms(void);
+extern "C" uint32_t lvgl_esphome_get_invalidated_kpx(void);
 
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"
@@ -219,6 +222,7 @@ class LvglComponent : public PollingComponent {
   void set_draw_end_trigger(Trigger<> *trigger) { this->draw_end_callback_ = trigger; }
   // Check if loop() has started - safe to perform LVGL operations
   bool is_loop_started() const { return this->loop_started_; }
+  void record_invalidated_area(const lv_area_t *area);
 
  protected:
   void draw_end_();
@@ -266,6 +270,11 @@ class LvglComponent : public PollingComponent {
   uint64_t perf_window_start_us_{0};
   uint64_t perf_busy_us_{0};
   uint64_t perf_flush_us_{0};
+  uint64_t perf_invalidated_px_{0};
+  uint32_t perf_invalidated_areas_{0};
+  uint64_t perf_flush_px_{0};
+  uint32_t perf_loop_max_us_{0};
+  uint32_t perf_flush_max_us_{0};
 };
 
 class IdleTrigger : public Trigger<> {
