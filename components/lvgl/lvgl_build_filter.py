@@ -50,6 +50,12 @@ create_piolibdeps_atomic_shim()
 
 def patch_profiler_builtin_source(src):
     src = Path(src)
+    if not src.exists():
+        libdeps_dir = env.subst("$PROJECT_LIBDEPS_DIR")
+        pioenv = env.subst("$PIOENV")
+        candidate = Path(libdeps_dir) / pioenv / "lvgl" / "src" / "misc" / "lv_profiler_builtin.c"
+        if candidate.exists():
+            src = candidate
     try:
         text = src.read_text(encoding="utf-8", errors="ignore")
     except OSError as err:
