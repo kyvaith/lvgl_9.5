@@ -70,10 +70,10 @@ struct LottieContext {
 inline void lottie_load_task(void *param) {
     LottieContext *ctx = (LottieContext *)param;
 
-    // Wait for LVGL to be ready.
-    // First load needs longer delay (LVGL may still be initialising).
-    // Re-load needs only a short delay (LVGL is already running).
-    vTaskDelay(pdMS_TO_TICKS(ctx->data_loaded ? 100 : 1000));
+    // Wait for LVGL to settle after the page/overlay event.  The widget is
+    // already hidden while loading, so a long first-load delay only makes the
+    // animation appear as a visible pop after the overlay is on screen.
+    vTaskDelay(pdMS_TO_TICKS(ctx->data_loaded ? 100 : 50));
 
     lv_lock();
 
@@ -148,14 +148,24 @@ inline void lottie_load_task(void *param) {
         lv_obj_invalidate(ctx->obj);
     }
 
-    // Restore visibility: use runtime_hidden which captures the actual state
-    // before page unload (preserves dynamic show/hide from user scripts).
-    // On first load, runtime_hidden == user_wants_hidden (from YAML config).
-    if (!ctx->runtime_hidden) {
-        lv_obj_remove_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
-    }
+    const bool reveal_after_prepare =
+        !ctx->runtime_hidden && ctx->data_loaded && ctx->exec_cb != nullptr &&
+        ctx->anim_var != nullptr && ctx->end_frame > ctx->start_frame;
 
     lv_unlock();
+
+    // Keep the object hidden for one LVGL tick after the heavy ThorVG parse and
+    // first-frame render.  This prevents the first visible flush from racing the
+    // buffer setup path, while preserving normal restart/update behaviour.
+    if (reveal_after_prepare) {
+        vTaskDelay(pdMS_TO_TICKS(32));
+        lv_lock();
+        if (!ctx->runtime_hidden) {
+            lv_obj_remove_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_invalidate(ctx->obj);
+        }
+        lv_unlock();
+    }
 
     // Validate animation parameters
     if (!ctx->data_loaded || ctx->exec_cb == nullptr ||
