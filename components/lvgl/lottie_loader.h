@@ -13,6 +13,7 @@
 #include "esp_cache.h"
 #include "esp_memory_utils.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <cstring>
 
 // Access lv_lottie_t internals for safe re-initialisation on screen re-load.
@@ -248,6 +249,12 @@ inline void lottie_load_task(void *param) {
              (unsigned)frame_delay_ms, (int)ctx->loop);
 
     ctx->start_tick = xTaskGetTickCount();  // ✅ Store in context for restart capability
+    uint32_t perf_frames = 0;
+    uint64_t perf_render_us = 0;
+    uint64_t perf_sync_us = 0;
+    uint32_t perf_render_max_us = 0;
+    uint32_t perf_sync_max_us = 0;
+    int64_t perf_last_log_us = esp_timer_get_time();
 
     while (!ctx->stop_requested) {
         if (ctx->runtime_hidden) {
@@ -290,9 +297,37 @@ inline void lottie_load_task(void *param) {
         }
 
         lv_lock();
+        int64_t render_start_us = esp_timer_get_time();
         ctx->exec_cb(ctx->anim_var, frame);
+        int64_t sync_start_us = esp_timer_get_time();
         lottie_sync_canvas_buffer(ctx);
+        int64_t sync_end_us = esp_timer_get_time();
         lv_unlock();
+
+        uint32_t render_us = (uint32_t)(sync_start_us - render_start_us);
+        uint32_t sync_us = (uint32_t)(sync_end_us - sync_start_us);
+        perf_frames++;
+        perf_render_us += render_us;
+        perf_sync_us += sync_us;
+        if (render_us > perf_render_max_us) perf_render_max_us = render_us;
+        if (sync_us > perf_sync_max_us) perf_sync_max_us = sync_us;
+
+        int64_t now_us = sync_end_us;
+        if (now_us - perf_last_log_us >= 2000000 && perf_frames > 0) {
+            ESP_LOGI(LOTTIE_TAG,
+                     "perf2s: frames=%u render_avg=%lluus render_max=%uus sync_avg=%lluus sync_max=%uus",
+                     (unsigned)perf_frames,
+                     (unsigned long long)(perf_render_us / perf_frames),
+                     (unsigned)perf_render_max_us,
+                     (unsigned long long)(perf_sync_us / perf_frames),
+                     (unsigned)perf_sync_max_us);
+            perf_frames = 0;
+            perf_render_us = 0;
+            perf_sync_us = 0;
+            perf_render_max_us = 0;
+            perf_sync_max_us = 0;
+            perf_last_log_us = now_us;
+        }
 
         vTaskDelay(pdMS_TO_TICKS(frame_delay_ms));
     }
