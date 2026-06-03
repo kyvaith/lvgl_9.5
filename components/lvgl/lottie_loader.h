@@ -28,8 +28,6 @@ static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
 static constexpr size_t LOTTIE_CACHE_ALIGN = 128;
 static constexpr size_t LOTTIE_INTERNAL_BUFFER_MAX_BYTES = 256 * 1024;
 static constexpr size_t LOTTIE_INTERNAL_BUFFER_HEADROOM_BYTES = 48 * 1024;
-static constexpr uint32_t LOTTIE_MIN_FRAME_DELAY_MS = 33;
-static constexpr uint32_t LOTTIE_MAX_FRAME_DELAY_MS = 100;
 
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
@@ -243,8 +241,8 @@ inline void lottie_load_task(void *param) {
     // --- Frame render loop (64 KB PSRAM stack) ---
     int32_t total_frames = ctx->end_frame - ctx->start_frame;
     uint32_t frame_delay_ms = ctx->duration_ms / (uint32_t)total_frames;
-    if (frame_delay_ms < LOTTIE_MIN_FRAME_DELAY_MS)  frame_delay_ms = LOTTIE_MIN_FRAME_DELAY_MS;
-    if (frame_delay_ms > LOTTIE_MAX_FRAME_DELAY_MS) frame_delay_ms = LOTTIE_MAX_FRAME_DELAY_MS;
+    if (frame_delay_ms < 16)  frame_delay_ms = 16;   // Cap at ~60 fps
+    if (frame_delay_ms > 100) frame_delay_ms = 100;
 
     ESP_LOGI(LOTTIE_TAG, "Render loop: %u ms/frame, loop=%d",
              (unsigned)frame_delay_ms, (int)ctx->loop);
