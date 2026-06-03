@@ -452,7 +452,8 @@ class MeterType(WidgetType):
                         f"lv_scale_section_set_style({tvar}, LV_PART_MAIN, &{style_name});"
                     ))
                     lw = Widget.create(iid, tvar, arc_indicator_type)
-                    await set_indicator_values(lw, v)
+                    lw.parent = scale_var
+                    await set_indicator_values(scale_var, lw, v)
 
                 if t == CONF_TICK_STYLE:
                     # Use native LVGL scale sections for tick coloring
@@ -566,7 +567,8 @@ class MeterType(WidgetType):
                         if option in v:
                             props["line_" + option] = v[option]
                     lw = await widget_to_code(props, line_indicator_type, scale_var)
-                    await set_indicator_values(lw, v)
+                    lw.parent = scale_var
+                    await set_indicator_values(scale_var, lw, v)
 
                 # Note: Image indicators (needles) are not directly supported by scale widget
                 # They would need to be implemented as separate image objects positioned over the scale
@@ -586,7 +588,9 @@ class MeterType(WidgetType):
                         CONF_ALIGN: CHILD_ALIGNMENTS.CENTER,
                     }
                     iw = await widget_to_code(props, image_indicator_type, scale_var)
-                    await set_indicator_values(iw, v)
+                    await iw.set_property(CONF_SRC, await lv_image.process(src))
+                    iw.parent = scale_var
+                    await set_indicator_values(scale_var, iw, v)
 
             # Configure ticks AFTER indicators (order matters for LVGL 9.5)
             has_indicators = bool(scale_conf.get(CONF_INDICATORS))
@@ -717,37 +721,37 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     widget = await get_widgets(config)
 
     async def set_value(w: Widget):
-        await set_indicator_values(w, config)
+        await set_indicator_values(w.parent, w, config)
 
     return await action_to_code(
         widget, set_value, action_id, template_arg, args, config
     )
 
 
-async def set_indicator_values(indicator: Widget, config):
+async def set_indicator_values(scale: MockObj, indicator: Widget, config):
     """Update scale section values (replaces meter indicator values)"""
     start_value = await get_start_value(config)
     end_value = await get_end_value(config)
     if indicator.type is scale_spec:
         # For scale sections, we update the range
         if start_value is not None and end_value is not None:
-            lv.scale_section_set_range(indicator.obj, start_value, end_value)
+            lv.scale_set_section_range(scale, indicator.obj, start_value, end_value)
         elif start_value is not None:
             # If only start value, use it as both start and end (single point)
-            lv.scale_section_set_range(indicator.obj, start_value, start_value)
+            lv.scale_set_section_range(scale, indicator.obj, start_value, start_value)
         elif end_value is not None:
             # If only end value, assume range from 0 to end_value
-            lv.scale_section_set_range(indicator.obj, 0, end_value)
+            lv.scale_set_section_range(scale, indicator.obj, 0, end_value)
         return
 
     if indicator.type is arc_indicator_type:
         # Arc indicators are now scale sections - update their range
         if start_value is not None and end_value is not None:
-            lv.scale_section_set_range(indicator.obj, start_value, end_value)
+            lv.scale_set_section_range(scale, indicator.obj, start_value, end_value)
         elif start_value is not None:
-            lv.scale_section_set_range(indicator.obj, start_value, start_value)
+            lv.scale_set_section_range(scale, indicator.obj, start_value, start_value)
         elif end_value is not None:
-            lv.scale_section_set_range(indicator.obj, 0, end_value)
+            lv.scale_set_section_range(scale, indicator.obj, 0, end_value)
         return
 
     if start_value is None:
