@@ -91,6 +91,25 @@ static uint32_t s_profiler_parse_drops = 0;
 static uint64_t s_profiler_first_us = 0;
 static uint64_t s_profiler_last_us = 0;
 
+struct ProfilerManualStats {
+  uint64_t started_us;
+  uint64_t ended_us;
+  uint32_t loop_calls;
+  uint64_t loop_total_us;
+  uint32_t loop_max_us;
+  uint32_t loop_over_30ms;
+  uint32_t flush_calls;
+  uint64_t flush_total_us;
+  uint32_t flush_max_us;
+  uint64_t flush_px;
+  uint32_t invalidated_areas;
+  uint64_t invalidated_px;
+  uint32_t ppa_fill_start;
+  uint32_t ppa_img_start;
+};
+
+static ProfilerManualStats s_profiler_manual = {};
+
 static uint64_t profiler_tick_us() {
 #ifdef USE_ESP32
   return (uint64_t) esp_timer_get_time();
@@ -120,6 +139,12 @@ static void profiler_copy_name(char *dst, const char *src) {
 }
 
 static void profiler_reset_summary() {
+  memset(&s_profiler_manual, 0, sizeof(s_profiler_manual));
+  s_profiler_manual.started_us = profiler_tick_us();
+#ifdef USE_LVGL_PPA
+  s_profiler_manual.ppa_fill_start = lv_draw_ppa_get_fill_task_count();
+  s_profiler_manual.ppa_img_start = lv_draw_ppa_get_img_task_count();
+#endif
   if (s_profiler_stack == nullptr || s_profiler_aggs == nullptr)
     return;
   s_profiler_stack_depth = 0;
@@ -130,6 +155,34 @@ static void profiler_reset_summary() {
   s_profiler_last_us = 0;
   memset(s_profiler_stack, 0, sizeof(ProfilerStackEntry) * PROFILER_MAX_STACK);
   memset(s_profiler_aggs, 0, sizeof(ProfilerAggEntry) * PROFILER_MAX_AGG);
+}
+
+static void profiler_note_loop(uint32_t duration_us) {
+  if (!s_profiler_enabled)
+    return;
+  s_profiler_manual.loop_calls++;
+  s_profiler_manual.loop_total_us += duration_us;
+  if (duration_us > s_profiler_manual.loop_max_us)
+    s_profiler_manual.loop_max_us = duration_us;
+  if (duration_us > 30000)
+    s_profiler_manual.loop_over_30ms++;
+}
+
+static void profiler_note_flush(uint32_t duration_us, uint32_t px) {
+  if (!s_profiler_enabled)
+    return;
+  s_profiler_manual.flush_calls++;
+  s_profiler_manual.flush_total_us += duration_us;
+  if (duration_us > s_profiler_manual.flush_max_us)
+    s_profiler_manual.flush_max_us = duration_us;
+  s_profiler_manual.flush_px += px;
+}
+
+static void profiler_note_invalidated(uint32_t px) {
+  if (!s_profiler_enabled)
+    return;
+  s_profiler_manual.invalidated_areas++;
+  s_profiler_manual.invalidated_px += px;
 }
 
 static bool profiler_parse_line(const char *buf, char *phase, uint64_t *time_us, const char **name) {
@@ -257,6 +310,48 @@ static void profiler_print_summary() {
   }
 }
 
+static void profiler_print_manual_summary() {
+  s_profiler_manual.ended_us = profiler_tick_us();
+  uint64_t window_us = s_profiler_manual.ended_us > s_profiler_manual.started_us
+                           ? s_profiler_manual.ended_us - s_profiler_manual.started_us
+                           : 0;
+  uint32_t loop_avg_us = s_profiler_manual.loop_calls == 0
+                             ? 0
+                             : (uint32_t) (s_profiler_manual.loop_total_us / s_profiler_manual.loop_calls);
+  uint32_t flush_avg_us = s_profiler_manual.flush_calls == 0
+                              ? 0
+                              : (uint32_t) (s_profiler_manual.flush_total_us / s_profiler_manual.flush_calls);
+  uint32_t ppa_fill_delta = 0;
+  uint32_t ppa_img_delta = 0;
+#ifdef USE_LVGL_PPA
+  uint32_t ppa_fill_now = lv_draw_ppa_get_fill_task_count();
+  uint32_t ppa_img_now = lv_draw_ppa_get_img_task_count();
+  ppa_fill_delta = ppa_fill_now - s_profiler_manual.ppa_fill_start;
+  ppa_img_delta = ppa_img_now - s_profiler_manual.ppa_img_start;
+#endif
+  ESP_LOGI("lvgl.prof",
+           "PROFILE_COST window=%lluus loop_calls=%u loop_total=%lluus loop_avg=%uus loop_max=%uus loop_over_30ms=%u",
+           (unsigned long long) window_us,
+           (unsigned) s_profiler_manual.loop_calls,
+           (unsigned long long) s_profiler_manual.loop_total_us,
+           (unsigned) loop_avg_us,
+           (unsigned) s_profiler_manual.loop_max_us,
+           (unsigned) s_profiler_manual.loop_over_30ms);
+  ESP_LOGI("lvgl.prof",
+           "PROFILE_COST flush_calls=%u flush_total=%lluus flush_avg=%uus flush_max=%uus flush_px=%llukpx",
+           (unsigned) s_profiler_manual.flush_calls,
+           (unsigned long long) s_profiler_manual.flush_total_us,
+           (unsigned) flush_avg_us,
+           (unsigned) s_profiler_manual.flush_max_us,
+           (unsigned long long) (s_profiler_manual.flush_px / 1000ULL));
+  ESP_LOGI("lvgl.prof",
+           "PROFILE_COST invalidated=%u areas/%llukpx ppa_delta=%u/%u",
+           (unsigned) s_profiler_manual.invalidated_areas,
+           (unsigned long long) (s_profiler_manual.invalidated_px / 1000ULL),
+           (unsigned) ppa_fill_delta,
+           (unsigned) ppa_img_delta);
+}
+
 static void profiler_init_custom() {
   if (s_profiler_stack == nullptr) {
 #ifdef USE_ESP32
@@ -351,8 +446,11 @@ extern "C" void lvgl_esphome_set_profiler_enabled(bool enabled) {
   if (enabled)
     esphome::lvgl::profiler_reset_summary();
   esphome::lvgl::s_profiler_enabled = enabled ? 1 : 0;
-  lv_profiler_builtin_set_enable(enabled);
-  ESP_LOGI("lvgl.prof", "profiler %s", enabled ? "enabled" : "disabled");
+  // The full built-in trace is too expensive on ESP32-P4 during LVGL draw
+  // bursts. Keep it compiled for future deep dives, but use the lightweight
+  // runtime sampler here so A/B firmware runs remain comparable.
+  lv_profiler_builtin_set_enable(false);
+  ESP_LOGI("lvgl.prof", "profiler %s (manual sampler)", enabled ? "enabled" : "disabled");
 #else
   if (enabled)
     ESP_LOGW("lvgl.prof", "profiler was requested but is not compiled in");
@@ -365,8 +463,9 @@ extern "C" void lvgl_esphome_profiler_flush(void) {
     return;
   lv_profiler_builtin_set_enable(false);
   esphome::lvgl::s_profiler_enabled = 0;
-  lv_profiler_builtin_flush();
-  esphome::lvgl::profiler_print_summary();
+  esphome::lvgl::profiler_print_manual_summary();
+  if (esphome::lvgl::s_profiler_agg_count > 0)
+    esphome::lvgl::profiler_print_summary();
   ESP_LOGI("lvgl.prof", "profiler flushed");
 #endif
 }
@@ -375,8 +474,9 @@ extern "C" void lvgl_esphome_profiler_mark(const char *name) {
 #if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
   if (!esphome::lvgl::s_profiler_initialized || !esphome::lvgl::s_profiler_enabled || name == nullptr)
     return;
-  lv_profiler_builtin_write(name, 'B');
-  lv_profiler_builtin_write(name, 'E');
+  ESP_LOGI("lvgl.prof", "PROFILE_MARK t=%lluus name=%s",
+           (unsigned long long) esphome::lvgl::profiler_tick_us(),
+           name);
 #else
   (void) name;
 #endif
@@ -577,6 +677,9 @@ void LvglComponent::record_invalidated_area(const lv_area_t *area) {
   uint32_t px = (uint32_t) lv_area_get_width(area) * (uint32_t) lv_area_get_height(area);
   this->perf_invalidated_px_ += px;
   this->perf_invalidated_areas_++;
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  profiler_note_invalidated(px);
+#endif
 }
 
 void LvglComponent::render_end_cb(lv_event_t *event) {
@@ -893,7 +996,11 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
     uint32_t flush_us = (uint32_t) dt;
     if (flush_us > this->perf_flush_max_us_)
       this->perf_flush_max_us_ = flush_us;
-    this->perf_flush_px_ += (uint64_t) lv_area_get_width(area) * (uint64_t) lv_area_get_height(area);
+    uint32_t flush_px = (uint32_t) lv_area_get_width(area) * (uint32_t) lv_area_get_height(area);
+    this->perf_flush_px_ += flush_px;
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+    profiler_note_flush(flush_us, flush_px);
+#endif
     // Track flush wait time so loop() can subtract it when computing
     // CPU%% — the synchronous DMA push isn't real CPU work.
     this->perf_flush_us_ += dt;
@@ -1749,6 +1856,9 @@ void LvglComponent::loop() {
     lv_timer_handler();
     uint64_t t1 = esp_timer_get_time();
     uint64_t loop_dt = t1 - t0;
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+    profiler_note_loop(loop_dt > UINT32_MAX ? UINT32_MAX : (uint32_t) loop_dt);
+#endif
     this->perf_busy_us_ += loop_dt;
     if (loop_dt > this->perf_loop_max_us_)
       this->perf_loop_max_us_ = (uint32_t) loop_dt;
