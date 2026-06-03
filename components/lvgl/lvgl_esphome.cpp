@@ -104,7 +104,7 @@ static void profiler_flush_cb(const char *buf) {
 static void profiler_init_custom() {
   lv_profiler_builtin_config_t config;
   lv_profiler_builtin_config_init(&config);
-  config.buf_size = 256 * 1024;
+  config.buf_size = 512 * 1024;
   config.tick_per_sec = 1000000;
   config.tick_get_cb = profiler_tick_us;
   config.flush_cb = profiler_flush_cb;
