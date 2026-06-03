@@ -279,6 +279,7 @@ async def to_code(configs):
         # LVGL 9.5 includes the PPA fix (PR #9162) natively.
         # We keep our custom PPA files as a fallback option.
         # PPA evaluate checks buffer alignment at runtime before claiming tasks.
+        df.add_define("LV_PPA_BURST_LENGTH", "128")
         cg.add_define("USE_LVGL_PPA")
         ppa_dir = Path(__file__).parent / "ppa"
         cg.add_build_flag(f"-I{ppa_dir.as_posix()}")

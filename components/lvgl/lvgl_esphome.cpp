@@ -752,7 +752,7 @@ void LvglComponent::esphome_lvgl_init() {
     ppa_client_config_t srm_cfg = {};
     srm_cfg.oper_type = PPA_OPERATION_SRM;
     srm_cfg.max_pending_trans_num = 1;
-    srm_cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    srm_cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
     if (ppa_register_client(&srm_cfg, &s_display_srm_client) == ESP_OK) {
       ESP_LOGI(TAG, "PPA display rotation SRM client registered");
     } else {

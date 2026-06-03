@@ -11,6 +11,24 @@
 #include "lv_draw_ppa_private.h"
 #include "lv_draw_ppa.h"
 
+#ifndef LV_PPA_BURST_LENGTH
+#define LV_PPA_BURST_LENGTH 128
+#endif
+
+#if LV_PPA_BURST_LENGTH == 128
+#define LV_DRAW_PPA_DATA_BURST_LENGTH PPA_DATA_BURST_LENGTH_128
+#elif LV_PPA_BURST_LENGTH == 64
+#define LV_DRAW_PPA_DATA_BURST_LENGTH PPA_DATA_BURST_LENGTH_64
+#elif LV_PPA_BURST_LENGTH == 32
+#define LV_DRAW_PPA_DATA_BURST_LENGTH PPA_DATA_BURST_LENGTH_32
+#elif LV_PPA_BURST_LENGTH == 16
+#define LV_DRAW_PPA_DATA_BURST_LENGTH PPA_DATA_BURST_LENGTH_16
+#elif LV_PPA_BURST_LENGTH == 8
+#define LV_DRAW_PPA_DATA_BURST_LENGTH PPA_DATA_BURST_LENGTH_8
+#else
+#error "LV_PPA_BURST_LENGTH must be 8, 16, 32, 64 or 128"
+#endif
+
 /*********************
  *      DEFINES
  *********************/
@@ -53,32 +71,32 @@ void lv_draw_ppa_init(void)
     ppa_client_config_t cfg;
     lv_memzero(&cfg, sizeof(cfg));
 
-    /* Register SRM client - 64-byte burst to reduce CPU/SPIRAM contention (PR #9612) */
+    /* Register SRM client */
     cfg.oper_type = PPA_OPERATION_SRM;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = LV_DRAW_PPA_DATA_BURST_LENGTH;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->srm_client);
     if(res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register SRM client: %d", res);
     }
 
-    /* Register Fill client - 64-byte burst to reduce DSI underruns under UI load */
+    /* Register Fill client */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_FILL;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = LV_DRAW_PPA_DATA_BURST_LENGTH;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->fill_client);
     if(res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register Fill client: %d", res);
     }
 
-    /* Register Blend client - 64-byte burst to reduce CPU/SPIRAM contention (PR #9612) */
+    /* Register Blend client */
     lv_memzero(&cfg, sizeof(cfg));
     cfg.oper_type = PPA_OPERATION_BLEND;
     cfg.max_pending_trans_num = 1;
-    cfg.data_burst_length = PPA_DATA_BURST_LENGTH_64;
+    cfg.data_burst_length = LV_DRAW_PPA_DATA_BURST_LENGTH;
 
     res = ppa_register_client(&cfg, &draw_ppa_unit->blend_client);
     if(res != ESP_OK) {
