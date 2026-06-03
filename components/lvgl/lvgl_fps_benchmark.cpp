@@ -190,7 +190,7 @@ static void fps_sampler_task(void *arg)
     FPS_LOGI(TAG_FPS, "Sampler started — collecting up to %d samples (%d ms each)",
              FPS_MAX_SAMPLES, FPS_SAMPLE_PERIOD_MS);
 
-    while (s_ctx.state != FPS_STATE_DONE) {
+    while (true) {
         vTaskDelay(pdMS_TO_TICKS(FPS_SAMPLE_PERIOD_MS));
 
         uint64_t now = esp_timer_get_time();
@@ -284,17 +284,20 @@ static void fps_sampler_task(void *arg)
         default:
             break;
         }
+
+        bool should_print_report = false;
+        if (s_ctx.state == FPS_STATE_DONE && !s_ctx.report_printed) {
+            s_ctx.report_printed = true;
+            should_print_report = true;
+        }
         xSemaphoreGive(s_ctx.mutex);
-    }
 
-    if (!s_ctx.report_printed) {
-        s_ctx.report_printed = true;
-        lvgl_fps_benchmark_print();
-        FPS_LOGI(TAG_FPS, "Use the 'lvgl_fps_print' service to re-print, "
-                 "or reboot to re-run the benchmark.");
+        if (should_print_report) {
+            lvgl_fps_benchmark_print();
+            FPS_LOGI(TAG_FPS, "Use the 'lvgl_fps_print' service to re-print, "
+                     "or reboot to re-run the benchmark.");
+        }
     }
-
-    vTaskDelete(NULL);
 }
 
 extern "C" void lvgl_fps_attach_v2(lv_display_t *display)
