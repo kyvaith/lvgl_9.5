@@ -1555,6 +1555,7 @@ SnapshotPanoramaCacheEntry snapshot_panorama_cache[4];
 
 constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
 constexpr int SNAPSHOT_PANORAMA_SCALE = 1;
+constexpr bool SNAPSHOT_DIRECT_COMPOSITOR_ENABLED = false;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
@@ -1964,7 +1965,7 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
   snapshot_swipe_state.next_x = next_x;
   auto *disp = lv_obj_get_display(current);
   auto *component = disp == nullptr ? nullptr : static_cast<LvglComponent *>(lv_display_get_user_data(disp));
-  if (component != nullptr) {
+  if (component != nullptr && SNAPSHOT_DIRECT_COMPOSITOR_ENABLED) {
     snapshot_swipe_state.component = component;
     lv_obj_t *left_obj = next_x > 0 ? current : next;
     lv_obj_t *right_obj = next_x > 0 ? next : current;
