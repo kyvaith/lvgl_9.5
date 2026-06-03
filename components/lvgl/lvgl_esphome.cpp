@@ -82,9 +82,9 @@ struct ProfilerAggEntry {
   uint32_t max_us;
 };
 
-static ProfilerStackEntry s_profiler_stack[PROFILER_MAX_STACK];
+static ProfilerStackEntry *s_profiler_stack = nullptr;
 static size_t s_profiler_stack_depth = 0;
-static ProfilerAggEntry s_profiler_aggs[PROFILER_MAX_AGG];
+static ProfilerAggEntry *s_profiler_aggs = nullptr;
 static size_t s_profiler_agg_count = 0;
 static uint32_t s_profiler_stack_overflow = 0;
 static uint32_t s_profiler_parse_drops = 0;
@@ -120,14 +120,16 @@ static void profiler_copy_name(char *dst, const char *src) {
 }
 
 static void profiler_reset_summary() {
+  if (s_profiler_stack == nullptr || s_profiler_aggs == nullptr)
+    return;
   s_profiler_stack_depth = 0;
   s_profiler_agg_count = 0;
   s_profiler_stack_overflow = 0;
   s_profiler_parse_drops = 0;
   s_profiler_first_us = 0;
   s_profiler_last_us = 0;
-  memset(s_profiler_stack, 0, sizeof(s_profiler_stack));
-  memset(s_profiler_aggs, 0, sizeof(s_profiler_aggs));
+  memset(s_profiler_stack, 0, sizeof(ProfilerStackEntry) * PROFILER_MAX_STACK);
+  memset(s_profiler_aggs, 0, sizeof(ProfilerAggEntry) * PROFILER_MAX_AGG);
 }
 
 static bool profiler_parse_line(const char *buf, char *phase, uint64_t *time_us, const char **name) {
@@ -182,7 +184,7 @@ static void profiler_add_duration(const char *name, uint32_t duration_us) {
 }
 
 static void profiler_flush_cb(const char *buf) {
-  if (buf == nullptr)
+  if (buf == nullptr || s_profiler_stack == nullptr || s_profiler_aggs == nullptr)
     return;
   char phase = '\0';
   uint64_t time_us = 0;
@@ -220,6 +222,8 @@ static void profiler_flush_cb(const char *buf) {
 }
 
 static void profiler_print_summary() {
+  if (s_profiler_aggs == nullptr)
+    return;
   uint64_t window_us = s_profiler_last_us > s_profiler_first_us ? s_profiler_last_us - s_profiler_first_us : 0;
   ESP_LOGI("lvgl.prof", "SUMMARY window=%lluus unique=%u drops=%u stack_overflow=%u open=%u",
            (unsigned long long) window_us,
@@ -254,6 +258,26 @@ static void profiler_print_summary() {
 }
 
 static void profiler_init_custom() {
+  if (s_profiler_stack == nullptr) {
+#ifdef USE_ESP32
+    s_profiler_stack = static_cast<ProfilerStackEntry *>(
+        heap_caps_calloc(PROFILER_MAX_STACK, sizeof(ProfilerStackEntry), MALLOC_CAP_SPIRAM));
+#endif
+    if (s_profiler_stack == nullptr)
+      s_profiler_stack = static_cast<ProfilerStackEntry *>(calloc(PROFILER_MAX_STACK, sizeof(ProfilerStackEntry)));
+  }
+  if (s_profiler_aggs == nullptr) {
+#ifdef USE_ESP32
+    s_profiler_aggs = static_cast<ProfilerAggEntry *>(
+        heap_caps_calloc(PROFILER_MAX_AGG, sizeof(ProfilerAggEntry), MALLOC_CAP_SPIRAM));
+#endif
+    if (s_profiler_aggs == nullptr)
+      s_profiler_aggs = static_cast<ProfilerAggEntry *>(calloc(PROFILER_MAX_AGG, sizeof(ProfilerAggEntry)));
+  }
+  if (s_profiler_stack == nullptr || s_profiler_aggs == nullptr) {
+    ESP_LOGW("lvgl.prof", "profiler summary buffers allocation failed");
+    return;
+  }
   lv_profiler_builtin_config_t config;
   lv_profiler_builtin_config_init(&config);
   config.buf_size = 512 * 1024;
