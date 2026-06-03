@@ -36,6 +36,11 @@ void lvgl_esphome_note_frame(void);
 }
 #endif
 
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+#include "misc/lv_profiler_builtin.h"
+#include "misc/lv_profiler_builtin_private.h"
+#endif
+
 #include <algorithm>
 #include <cstring>
 #include <numeric>
@@ -56,6 +61,61 @@ static volatile uint32_t s_perf_logging_enabled = 0;
 static volatile uint32_t s_swipe_logging_enabled = 0;
 static volatile bool s_snapshot_swipe_active = false;
 static volatile bool s_snapshot_direct_active = false;
+
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+static volatile uint32_t s_profiler_enabled = 0;
+static bool s_profiler_initialized = false;
+
+static uint64_t profiler_tick_us() {
+#ifdef USE_ESP32
+  return (uint64_t) esp_timer_get_time();
+#else
+  return (uint64_t) micros();
+#endif
+}
+
+static int profiler_tid_get() {
+  return 1;
+}
+
+static int profiler_cpu_get() {
+#ifdef USE_ESP32
+  return xPortGetCoreID();
+#else
+  return 0;
+#endif
+}
+
+static void profiler_flush_cb(const char *buf) {
+  if (buf == nullptr)
+    return;
+  const char *line = buf;
+  while (*line != '\0') {
+    const char *end = strchr(line, '\n');
+    int len = end == nullptr ? (int) strlen(line) : (int) (end - line);
+    if (len > 0)
+      ESP_LOGI("lvgl.prof", "%.*s", len, line);
+    if (end == nullptr)
+      break;
+    line = end + 1;
+  }
+}
+
+static void profiler_init_custom() {
+  lv_profiler_builtin_config_t config;
+  lv_profiler_builtin_config_init(&config);
+  config.buf_size = 96 * 1024;
+  config.tick_per_sec = 1000000;
+  config.tick_get_cb = profiler_tick_us;
+  config.flush_cb = profiler_flush_cb;
+  config.tid_get_cb = profiler_tid_get;
+  config.cpu_get_cb = profiler_cpu_get;
+  lv_profiler_builtin_init(&config);
+  lv_profiler_builtin_set_enable(false);
+  s_profiler_enabled = 0;
+  s_profiler_initialized = true;
+}
+#endif
 
 }  // namespace esphome::lvgl
 
@@ -98,6 +158,49 @@ extern "C" void lvgl_esphome_set_perf_logging_enabled(bool enabled) {
 
 extern "C" void lvgl_esphome_set_swipe_logging_enabled(bool enabled) {
   esphome::lvgl::s_swipe_logging_enabled = enabled ? 1 : 0;
+}
+
+extern "C" uint32_t lvgl_esphome_get_profiler_enabled(void) {
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  return esphome::lvgl::s_profiler_enabled;
+#else
+  return 0;
+#endif
+}
+
+extern "C" void lvgl_esphome_set_profiler_enabled(bool enabled) {
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  if (!esphome::lvgl::s_profiler_initialized)
+    esphome::lvgl::profiler_init_custom();
+  esphome::lvgl::s_profiler_enabled = enabled ? 1 : 0;
+  lv_profiler_builtin_set_enable(enabled);
+  ESP_LOGI("lvgl.prof", "profiler %s", enabled ? "enabled" : "disabled");
+#else
+  if (enabled)
+    ESP_LOGW("lvgl.prof", "profiler was requested but is not compiled in");
+#endif
+}
+
+extern "C" void lvgl_esphome_profiler_flush(void) {
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  if (!esphome::lvgl::s_profiler_initialized)
+    return;
+  lv_profiler_builtin_set_enable(false);
+  esphome::lvgl::s_profiler_enabled = 0;
+  lv_profiler_builtin_flush();
+  ESP_LOGI("lvgl.prof", "profiler flushed");
+#endif
+}
+
+extern "C" void lvgl_esphome_profiler_mark(const char *name) {
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  if (!esphome::lvgl::s_profiler_initialized || !esphome::lvgl::s_profiler_enabled || name == nullptr)
+    return;
+  lv_profiler_builtin_write(name, 'B');
+  lv_profiler_builtin_write(name, 'E');
+#else
+  (void) name;
+#endif
 }
 
 // Linker wrap (PlatformIO LDFLAGs -Wl,--wrap=lv_timer_get_idle and
@@ -377,6 +480,9 @@ void LvglComponent::esphome_lvgl_init() {
   }
 #endif
   lv_tick_set_cb([] { return millis(); });
+#if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
+  profiler_init_custom();
+#endif
   lv_update_event = static_cast<lv_event_code_t>(lv_event_register_id());
   lv_api_event = static_cast<lv_event_code_t>(lv_event_register_id());
 }
