@@ -30,6 +30,7 @@
 #include "esp_err.h"
 #include "hal/color_hal.h"
 #include "esp_cache.h"
+#include "esp_private/esp_cache_private.h"
 #include "esp_log.h"
 
 /*********************
@@ -46,10 +47,20 @@
  * the cache line — mirrors what esp_lvgl_port (common/ppa/lcd_ppa.c) does
  * via ALIGN_UP(size, CONFIG_CACHE_L2_CACHE_LINE_SIZE).
  */
+static inline uint32_t lv_draw_ppa_cache_align(void)
+{
+    size_t alignment = 0;
+    esp_err_t err = esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &alignment);
+    if (err != ESP_OK || alignment == 0 || (alignment & (alignment - 1U)) != 0) {
+        alignment = 64;
+    }
+    return (uint32_t) alignment;
+}
+
 static inline uint32_t lv_draw_ppa_align_size(uint32_t size)
 {
-    return (size + (uint32_t)LV_DRAW_BUF_ALIGN - 1U)
-           & ~((uint32_t)LV_DRAW_BUF_ALIGN - 1U);
+    uint32_t alignment = lv_draw_ppa_cache_align();
+    return (size + alignment - 1U) & ~(alignment - 1U);
 }
 
 typedef struct lv_draw_ppa_unit {

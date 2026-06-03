@@ -12,10 +12,12 @@
 #ifdef CONFIG_SOC_PPA_SUPPORTED
 
 #include "lvgl_ppa_accel_v9.h"
+#include "lv_draw_ppa_private.h"
 #include "lvgl.h"
 #include "src/draw/sw/blend/lv_draw_sw_blend.h"
 #include "src/draw/sw/blend/lv_draw_sw_blend_private.h"
 #include "src/draw/sw/blend/lv_draw_sw_blend_to_rgb565.h"
+#include "src/draw/sw/blend/lv_draw_sw_blend_to_rgb888.h"
 #include "src/draw/lv_draw.h"
 #include "src/draw/lv_draw_buf.h"
 #include "src/draw/lv_draw_private.h"
@@ -77,8 +79,13 @@ static bool s_handler_registered = false;
 
 static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc_t *dsc);
 
-static lv_draw_sw_custom_blend_handler_t s_custom_handler = {
+static lv_draw_sw_custom_blend_handler_t s_custom_handler_rgb565 = {
     .dest_cf = LV_COLOR_FORMAT_RGB565,
+    .handler = lv_draw_ppa_v9_handler,
+};
+
+static lv_draw_sw_custom_blend_handler_t s_custom_handler_rgb888 = {
+    .dest_cf = LV_COLOR_FORMAT_RGB888,
     .handler = lv_draw_ppa_v9_handler,
 };
 
@@ -86,14 +93,15 @@ static size_t ppa_align(void)
 {
     if (s_cache_align == 0) {
         esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &s_cache_align);
-        if (s_cache_align == 0) {
+        if (s_cache_align == 0 || (s_cache_align & (s_cache_align - 1)) != 0) {
             s_cache_align = LVGL_PORT_PPA_ALIGNMENT;
         }
     }
     return s_cache_align;
 }
 
-static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_area, void *buf, int flag)
+static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_area,
+                                  void *buf, uint32_t px_size, int flag)
 {
     if (!area || !buf_area || !buf || !esp_ptr_external_ram(buf)) {
         return;
@@ -105,7 +113,7 @@ static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_ar
     int32_t buf_w = lv_area_get_width(buf_area);
     int32_t buf_h = lv_area_get_height(buf_area);
 
-    if (width <= 0 || height <= 0 || buf_w <= 0 || buf_h <= 0) {
+    if (width <= 0 || height <= 0 || buf_w <= 0 || buf_h <= 0 || px_size == 0) {
         return;
     }
 
@@ -116,8 +124,8 @@ static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_ar
         return;
     }
 
-    uint8_t *start = (uint8_t *)buf + ((size_t)off_y * buf_w + off_x) * sizeof(lv_color_t);
-    size_t bytes = (size_t)width * height * sizeof(lv_color_t);
+    uint8_t *start = (uint8_t *)buf + ((size_t)off_y * buf_w + off_x) * px_size;
+    size_t bytes = ((size_t)(height - 1) * (size_t)buf_w + (size_t)width) * px_size;
     uintptr_t addr = (uintptr_t)start;
     uintptr_t aligned_addr = addr & ~(align - 1);
     size_t total = LVGL_PORT_PPA_ALIGN_UP(bytes + (addr - aligned_addr), align);
@@ -132,13 +140,14 @@ static void ppa_cache_sync_region(const lv_area_t *area, const lv_area_t *buf_ar
     esp_cache_msync((void *)aligned_addr, total, msync_flags);
 }
 
-static void ppa_cache_invalidate(const lv_area_t *area, const lv_area_t *buf_area, lv_color_t *buf)
+static void ppa_cache_invalidate(const lv_area_t *area, const lv_area_t *buf_area, void *buf, uint32_t px_size)
 {
-    ppa_cache_sync_region(area, buf_area, buf, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    ppa_cache_sync_region(area, buf_area, buf, px_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
 }
 
-static void ppa_blend(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_color_t *fg_buf,
-                      const lv_area_t *fg_area, uint16_t fg_stride_px, const lv_area_t *block_area, lv_opa_t opa)
+static void ppa_blend(void *bg_buf, lv_color_format_t color_format, uint32_t px_size,
+                      const lv_area_t *bg_area, const void *fg_buf, const lv_area_t *fg_area,
+                      uint16_t fg_stride_px, const lv_area_t *block_area, lv_opa_t opa)
 {
     uint16_t bg_w = lv_area_get_width(bg_area);
     uint16_t bg_h = lv_area_get_height(bg_area);
@@ -159,6 +168,7 @@ static void ppa_blend(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_col
         fg_h = fg_off_y + block_h;
     }
     size_t align = ppa_align();
+    ppa_blend_color_mode_t ppa_cf = lv_color_format_to_ppa_blend(color_format);
 
     ppa_blend_oper_config_t cfg = {
         .in_bg = {
@@ -169,7 +179,7 @@ static void ppa_blend(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_col
             .block_h = block_h,
             .block_offset_x = bg_off_x,
             .block_offset_y = bg_off_y,
-            .blend_cm = PPA_BLEND_COLOR_MODE_RGB565,
+            .blend_cm = ppa_cf,
         },
         .in_fg = {
             .buffer = fg_buf,
@@ -179,16 +189,16 @@ static void ppa_blend(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_col
             .block_h = block_h,
             .block_offset_x = fg_off_x,
             .block_offset_y = fg_off_y,
-            .blend_cm = PPA_BLEND_COLOR_MODE_RGB565,
+            .blend_cm = ppa_cf,
         },
         .out = {
             .buffer = bg_buf,
-            .buffer_size = LVGL_PORT_PPA_ALIGN_UP(sizeof(lv_color_t) * bg_w * bg_h, align),
+            .buffer_size = LVGL_PORT_PPA_ALIGN_UP((size_t)px_size * bg_w * bg_h, align),
             .pic_w = bg_w,
             .pic_h = bg_h,
             .block_offset_x = bg_off_x,
             .block_offset_y = bg_off_y,
-            .blend_cm = PPA_BLEND_COLOR_MODE_RGB565,
+            .blend_cm = ppa_cf,
         },
         .bg_rgb_swap = 0,
         .bg_byte_swap = 0,
@@ -207,11 +217,13 @@ static void ppa_blend(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_col
     }
 }
 
-static void ppa_fill(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_area_t *block_area, lv_color_t color)
+static void ppa_fill(void *bg_buf, lv_color_format_t color_format, uint32_t px_size,
+                     const lv_area_t *bg_area, const lv_area_t *block_area, lv_color_t color)
 {
     uint16_t bg_w = lv_area_get_width(bg_area);
     uint16_t bg_h = lv_area_get_height(bg_area);
     size_t align = ppa_align();
+    ppa_fill_color_mode_t ppa_cf = lv_color_format_to_ppa_fill(color_format);
 
     lv_color32_t c32 = lv_color_to_32(color, LV_OPA_COVER);
     uint32_t argb = ((uint32_t)c32.alpha << 24) | ((uint32_t)c32.red << 16) |
@@ -220,12 +232,12 @@ static void ppa_fill(lv_color_t *bg_buf, const lv_area_t *bg_area, const lv_area
     ppa_fill_oper_config_t cfg = {
         .out = {
             .buffer = bg_buf,
-            .buffer_size = LVGL_PORT_PPA_ALIGN_UP(sizeof(lv_color_t) * bg_w * bg_h, align),
+            .buffer_size = LVGL_PORT_PPA_ALIGN_UP((size_t)px_size * bg_w * bg_h, align),
             .pic_w = bg_w,
             .pic_h = bg_h,
             .block_offset_x = (uint32_t)(block_area->x1 - bg_area->x1),
             .block_offset_y = (uint32_t)(block_area->y1 - bg_area->y1),
-            .fill_cm = PPA_FILL_COLOR_MODE_RGB565,
+            .fill_cm = ppa_cf,
         },
         .fill_block_w = (uint32_t)lv_area_get_width(block_area),
         .fill_block_h = (uint32_t)lv_area_get_height(block_area),
@@ -275,7 +287,11 @@ static void lv_draw_ppa_v9_sw_fallback(lv_draw_task_t *t, const lv_draw_sw_blend
         fill_dsc.dest_buf = lv_draw_layer_go_to_xy(layer,
                                                    blend_area.x1 - layer->buf_area.x1,
                                                    blend_area.y1 - layer->buf_area.y1);
-        lv_draw_sw_blend_color_to_rgb565(&fill_dsc);
+        if (layer->color_format == LV_COLOR_FORMAT_RGB888) {
+            lv_draw_sw_blend_color_to_rgb888(&fill_dsc, lv_color_format_get_size(layer->color_format));
+        } else {
+            lv_draw_sw_blend_color_to_rgb565(&fill_dsc);
+        }
         return;
     }
 
@@ -317,7 +333,11 @@ static void lv_draw_ppa_v9_sw_fallback(lv_draw_task_t *t, const lv_draw_sw_blend
                                                 blend_area.x1 - layer->buf_area.x1,
                                                 blend_area.y1 - layer->buf_area.y1);
 
-    lv_draw_sw_blend_image_to_rgb565(&image_dsc);
+    if (layer->color_format == LV_COLOR_FORMAT_RGB888) {
+        lv_draw_sw_blend_image_to_rgb888(&image_dsc, lv_color_format_get_size(layer->color_format));
+    } else {
+        lv_draw_sw_blend_image_to_rgb565(&image_dsc);
+    }
 }
 
 /* Wrap the SW fallback so we don't have to instrument every call site. */
@@ -332,7 +352,14 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
 {
     ppa_stats_maybe_log();
     lv_layer_t *layer = t->target_layer;
-    if (!layer || !layer->draw_buf || layer->color_format != LV_COLOR_FORMAT_RGB565) {
+    if (!layer || !layer->draw_buf ||
+            (layer->color_format != LV_COLOR_FORMAT_RGB565 && layer->color_format != LV_COLOR_FORMAT_RGB888)) {
+        lv_draw_ppa_v9_sw_fallback(t, dsc);
+        return;
+    }
+
+    uint32_t dst_px_size = lv_color_format_get_size(layer->color_format);
+    if (dst_px_size == 0) {
         lv_draw_ppa_v9_sw_fallback(t, dsc);
         return;
     }
@@ -353,7 +380,7 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
         return;
     }
 
-    lv_color_t *bg_buf = (lv_color_t *)layer->draw_buf->data;
+    void *bg_buf = layer->draw_buf->data;
     size_t align = ppa_align();
     if (!bg_buf || ((uintptr_t)bg_buf % align) != 0) {
         lv_draw_ppa_v9_sw_fallback(t, dsc);
@@ -366,10 +393,10 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
         return;
     }
 
-    ppa_cache_sync_region(&block_area, &layer->buf_area, bg_buf, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    ppa_cache_sync_region(&block_area, &layer->buf_area, bg_buf, dst_px_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
     if (dsc->src_buf) {
-        if (dsc->src_color_format != LV_COLOR_FORMAT_RGB565) {
+        if (dsc->src_color_format != layer->color_format) {
             lv_draw_ppa_v9_sw_fallback(t, dsc);
             return;
         }
@@ -396,7 +423,8 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
         uintptr_t src_addr = (uintptr_t)src_ptr8;
         uintptr_t src_aligned = src_addr & ~(align - 1);
         size_t src_total = LVGL_PORT_PPA_ALIGN_UP(
-                               (size_t)lv_area_get_width(&block_area) * lv_area_get_height(&block_area) * src_px_size +
+                               ((size_t)(lv_area_get_height(&block_area) - 1) * src_stride +
+                                (size_t)lv_area_get_width(&block_area) * src_px_size) +
                                (src_addr - src_aligned), align);
         if (esp_ptr_external_ram((void *)dsc->src_buf)) {
             esp_cache_msync((void *)src_aligned, src_total,
@@ -405,17 +433,17 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
 
         uint16_t src_stride_px = src_stride / src_px_size;
         s_ppa_hw_blends++;
-        ppa_blend(bg_buf, &layer->buf_area, (const lv_color_t *)dsc->src_buf,
+        ppa_blend(bg_buf, layer->color_format, dst_px_size, &layer->buf_area, dsc->src_buf,
                   src_area, src_stride_px, &block_area, dsc->opa);
 
-        ppa_cache_invalidate(&block_area, &layer->buf_area, bg_buf);
+        ppa_cache_invalidate(&block_area, &layer->buf_area, bg_buf, dst_px_size);
         return;
     }
 
     if (dsc->opa >= LV_OPA_MAX) {
         s_ppa_hw_fills++;
-        ppa_fill(bg_buf, &layer->buf_area, &block_area, dsc->color);
-        ppa_cache_invalidate(&block_area, &layer->buf_area, bg_buf);
+        ppa_fill(bg_buf, layer->color_format, dst_px_size, &layer->buf_area, &block_area, dsc->color);
+        ppa_cache_invalidate(&block_area, &layer->buf_area, bg_buf, dst_px_size);
         return;
     }
 
@@ -424,14 +452,24 @@ static void lv_draw_ppa_v9_handler(lv_draw_task_t *t, const lv_draw_sw_blend_dsc
 
 void lvgl_port_ppa_v9_init(lv_display_t *display)
 {
-    if (!display || lv_display_get_color_format(display) != LV_COLOR_FORMAT_RGB565) {
-        ESP_LOGI(TAG_V9, "skip: display not RGB565");
+    if (!display ||
+            (lv_display_get_color_format(display) != LV_COLOR_FORMAT_RGB565 &&
+             lv_display_get_color_format(display) != LV_COLOR_FORMAT_RGB888)) {
+        ESP_LOGI(TAG_V9, "skip: display format unsupported by PPA v9 blend handler");
         return;
     }
 
     if (s_blend_handle == NULL && s_fill_handle == NULL) {
-        ppa_client_config_t blend_cfg = { .oper_type = PPA_OPERATION_BLEND };
-        ppa_client_config_t fill_cfg = { .oper_type = PPA_OPERATION_FILL };
+        ppa_client_config_t blend_cfg = {
+            .oper_type = PPA_OPERATION_BLEND,
+            .max_pending_trans_num = 1,
+            .data_burst_length = PPA_DATA_BURST_LENGTH_128,
+        };
+        ppa_client_config_t fill_cfg = {
+            .oper_type = PPA_OPERATION_FILL,
+            .max_pending_trans_num = 1,
+            .data_burst_length = PPA_DATA_BURST_LENGTH_128,
+        };
         esp_err_t err = ppa_register_client(&blend_cfg, &s_blend_handle);
         if (err != ESP_OK) {
             ESP_LOGE(TAG_V9, "ppa blend client register failed: %d", err);
@@ -449,9 +487,10 @@ void lvgl_port_ppa_v9_init(lv_display_t *display)
     }
 
     if (!s_handler_registered) {
-        lv_draw_sw_register_blend_handler(&s_custom_handler);
+        lv_draw_sw_register_blend_handler(&s_custom_handler_rgb565);
+        lv_draw_sw_register_blend_handler(&s_custom_handler_rgb888);
         s_handler_registered = true;
-        ESP_LOGI(TAG, "PPA v9 blend handler registered for RGB565");
+        ESP_LOGI(TAG, "PPA v9 blend handler registered for RGB565/RGB888");
     }
 }
 
