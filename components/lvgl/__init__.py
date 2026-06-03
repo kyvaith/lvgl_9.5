@@ -317,7 +317,7 @@ async def to_code(configs):
         df.add_define("LV_USE_LOG", "1")
         df.add_define("LV_USE_PROFILER", "1")
         df.add_define("LV_USE_PROFILER_BUILTIN", "1")
-        df.add_define("LV_PROFILER_BUILTIN_BUF_SIZE", "(96 * 1024)")
+        df.add_define("LV_PROFILER_BUILTIN_BUF_SIZE", "(256 * 1024)")
         df.add_define("LV_PROFILER_BUILTIN_DEFAULT_ENABLE", "0")
         df.add_define("LV_USE_PROFILER_BUILTIN_POSIX", "0")
         df.add_define("LV_PROFILER_INCLUDE", '"misc/lv_profiler_builtin.h"')

@@ -24,6 +24,8 @@ ATOMIC_SHIM_TEXT = """#pragma once
 #endif
 """
 
+PROFILER_NULL_FUNC_PATCHED = "const char * func = item->func ? item->func : \"<null>\";"
+
 
 def write_atomic_shim(shim):
     shim = Path(shim)
@@ -44,6 +46,35 @@ def create_piolibdeps_atomic_shim():
 
 
 create_piolibdeps_atomic_shim()
+
+
+def patch_profiler_builtin_source(src):
+    src = Path(src)
+    try:
+        text = src.read_text(encoding="utf-8", errors="ignore")
+    except OSError as err:
+        print("WARNING: failed to read LVGL profiler source:", err)
+        return
+    if PROFILER_NULL_FUNC_PATCHED in text:
+        return
+    text = text.replace(
+        "lv_profiler_builtin_item_t * item = &profiler_ctx->item_arr[cur++];\n"
+        "        uint64_t sec = item->tick / tick_per_sec;",
+        "lv_profiler_builtin_item_t * item = &profiler_ctx->item_arr[cur++];\n"
+        "        const char * func = item->func ? item->func : \"<null>\";\n"
+        "        uint64_t sec = item->tick / tick_per_sec;",
+    )
+    text = text.replace(
+        "                    item->tag,\n"
+        "                    item->func);",
+        "                    item->tag,\n"
+        "                    func);",
+    )
+    try:
+        src.write_text(text, encoding="utf-8")
+        print("Patched LVGL profiler null function guard:", src)
+    except OSError as err:
+        print("WARNING: failed to patch LVGL profiler source:", err)
 
 # Parse build flags from ESPHome's __init__.py
 _build_flags = " ".join(env.get("BUILD_FLAGS", []))
@@ -146,6 +177,9 @@ def lvgl_src_filter(env, node):
 
         except Exception as err:
             print("WARNING: failed to create LVGL osal atomic.h shim:", err)
+
+    if path.endswith("/misc/lv_profiler_builtin.c"):
+        patch_profiler_builtin_source(node.get_path())
   
     # Only filter files inside the LVGL library
     if "/lvgl/" not in path:
