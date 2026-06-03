@@ -460,6 +460,7 @@ extern "C" void lvgl_esphome_profiler_flush(void) {
 #if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
   if (!esphome::lvgl::s_profiler_initialized)
     return;
+  lv_profiler_builtin_flush();
   lv_profiler_builtin_set_enable(false);
   esphome::lvgl::s_profiler_enabled = 0;
   esphome::lvgl::profiler_print_manual_summary();
