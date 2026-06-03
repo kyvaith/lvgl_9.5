@@ -139,6 +139,15 @@ inline void lottie_load_task(void *param) {
         lv_lottie_set_buffer(ctx->obj, ctx->width, ctx->height, ctx->pixel_buffer);
     }
 
+    // Render the first frame before the object can become visible.  The pixel
+    // buffer exists at this point, but without this draw LVGL can briefly flush
+    // the blank buffer created in lottie_launch().
+    if (ctx->data_loaded && ctx->exec_cb != nullptr && ctx->anim_var != nullptr &&
+        ctx->end_frame > ctx->start_frame) {
+        ctx->exec_cb(ctx->anim_var, ctx->start_frame);
+        lv_obj_invalidate(ctx->obj);
+    }
+
     // Restore visibility: use runtime_hidden which captures the actual state
     // before page unload (preserves dynamic show/hide from user scripts).
     // On first load, runtime_hidden == user_wants_hidden (from YAML config).
@@ -173,6 +182,19 @@ inline void lottie_load_task(void *param) {
     ctx->start_tick = xTaskGetTickCount();  // ✅ Store in context for restart capability
 
     while (!ctx->stop_requested) {
+        if (ctx->runtime_hidden) {
+            if (ctx->restart_requested) {
+                ctx->start_tick = xTaskGetTickCount();
+                ctx->restart_requested = false;
+                lv_lock();
+                ctx->exec_cb(ctx->anim_var, ctx->start_frame);
+                lv_obj_invalidate(ctx->obj);
+                lv_unlock();
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
         // ✅ Check if restart requested
         if (ctx->restart_requested) {
             ctx->start_tick = xTaskGetTickCount();
