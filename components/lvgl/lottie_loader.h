@@ -21,6 +21,8 @@
 // before re-pushing the paint.
 #include <src/widgets/lottie/lv_lottie_private.h>
 
+extern "C" uint32_t lvgl_esphome_get_perf_logging_enabled(void);
+
 namespace esphome {
 namespace lvgl {
 
@@ -297,36 +299,46 @@ inline void lottie_load_task(void *param) {
         }
 
         lv_lock();
-        int64_t render_start_us = esp_timer_get_time();
+        bool perf_log_enabled = lvgl_esphome_get_perf_logging_enabled() != 0;
+        int64_t render_start_us = perf_log_enabled ? esp_timer_get_time() : 0;
         ctx->exec_cb(ctx->anim_var, frame);
-        int64_t sync_start_us = esp_timer_get_time();
+        int64_t sync_start_us = perf_log_enabled ? esp_timer_get_time() : 0;
         lottie_sync_canvas_buffer(ctx);
-        int64_t sync_end_us = esp_timer_get_time();
+        int64_t sync_end_us = perf_log_enabled ? esp_timer_get_time() : 0;
         lv_unlock();
 
-        uint32_t render_us = (uint32_t)(sync_start_us - render_start_us);
-        uint32_t sync_us = (uint32_t)(sync_end_us - sync_start_us);
-        perf_frames++;
-        perf_render_us += render_us;
-        perf_sync_us += sync_us;
-        if (render_us > perf_render_max_us) perf_render_max_us = render_us;
-        if (sync_us > perf_sync_max_us) perf_sync_max_us = sync_us;
+        if (perf_log_enabled) {
+            uint32_t render_us = (uint32_t)(sync_start_us - render_start_us);
+            uint32_t sync_us = (uint32_t)(sync_end_us - sync_start_us);
+            perf_frames++;
+            perf_render_us += render_us;
+            perf_sync_us += sync_us;
+            if (render_us > perf_render_max_us) perf_render_max_us = render_us;
+            if (sync_us > perf_sync_max_us) perf_sync_max_us = sync_us;
 
-        int64_t now_us = sync_end_us;
-        if (now_us - perf_last_log_us >= 2000000 && perf_frames > 0) {
-            ESP_LOGI(LOTTIE_TAG,
-                     "perf2s: frames=%u render_avg=%lluus render_max=%uus sync_avg=%lluus sync_max=%uus",
-                     (unsigned)perf_frames,
-                     (unsigned long long)(perf_render_us / perf_frames),
-                     (unsigned)perf_render_max_us,
-                     (unsigned long long)(perf_sync_us / perf_frames),
-                     (unsigned)perf_sync_max_us);
+            int64_t now_us = sync_end_us;
+            if (now_us - perf_last_log_us >= 2000000 && perf_frames > 0) {
+                ESP_LOGI(LOTTIE_TAG,
+                         "perf2s: frames=%u render_avg=%lluus render_max=%uus sync_avg=%lluus sync_max=%uus",
+                         (unsigned)perf_frames,
+                         (unsigned long long)(perf_render_us / perf_frames),
+                         (unsigned)perf_render_max_us,
+                         (unsigned long long)(perf_sync_us / perf_frames),
+                         (unsigned)perf_sync_max_us);
+                perf_frames = 0;
+                perf_render_us = 0;
+                perf_sync_us = 0;
+                perf_render_max_us = 0;
+                perf_sync_max_us = 0;
+                perf_last_log_us = now_us;
+            }
+        } else if (perf_frames != 0) {
             perf_frames = 0;
             perf_render_us = 0;
             perf_sync_us = 0;
             perf_render_max_us = 0;
             perf_sync_max_us = 0;
-            perf_last_log_us = now_us;
+            perf_last_log_us = esp_timer_get_time();
         }
 
         vTaskDelay(pdMS_TO_TICKS(frame_delay_ms));
