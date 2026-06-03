@@ -42,6 +42,7 @@ void lvgl_esphome_note_frame(void);
 #endif
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <numeric>
 
@@ -65,6 +66,30 @@ static volatile bool s_snapshot_direct_active = false;
 #if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
 static volatile uint32_t s_profiler_enabled = 0;
 static bool s_profiler_initialized = false;
+static constexpr size_t PROFILER_MAX_STACK = 96;
+static constexpr size_t PROFILER_MAX_AGG = 96;
+static constexpr size_t PROFILER_NAME_LEN = 56;
+
+struct ProfilerStackEntry {
+  char name[PROFILER_NAME_LEN];
+  uint64_t start_us;
+};
+
+struct ProfilerAggEntry {
+  char name[PROFILER_NAME_LEN];
+  uint32_t count;
+  uint64_t total_us;
+  uint32_t max_us;
+};
+
+static ProfilerStackEntry s_profiler_stack[PROFILER_MAX_STACK];
+static size_t s_profiler_stack_depth = 0;
+static ProfilerAggEntry s_profiler_aggs[PROFILER_MAX_AGG];
+static size_t s_profiler_agg_count = 0;
+static uint32_t s_profiler_stack_overflow = 0;
+static uint32_t s_profiler_parse_drops = 0;
+static uint64_t s_profiler_first_us = 0;
+static uint64_t s_profiler_last_us = 0;
 
 static uint64_t profiler_tick_us() {
 #ifdef USE_ESP32
@@ -86,18 +111,145 @@ static int profiler_cpu_get() {
 #endif
 }
 
+static void profiler_copy_name(char *dst, const char *src) {
+  size_t len = 0;
+  while (src[len] != '\0' && src[len] != '\n' && src[len] != '\r' && src[len] != '\x1b' && len < PROFILER_NAME_LEN - 1)
+    len++;
+  memcpy(dst, src, len);
+  dst[len] = '\0';
+}
+
+static void profiler_reset_summary() {
+  s_profiler_stack_depth = 0;
+  s_profiler_agg_count = 0;
+  s_profiler_stack_overflow = 0;
+  s_profiler_parse_drops = 0;
+  s_profiler_first_us = 0;
+  s_profiler_last_us = 0;
+  memset(s_profiler_stack, 0, sizeof(s_profiler_stack));
+  memset(s_profiler_aggs, 0, sizeof(s_profiler_aggs));
+}
+
+static bool profiler_parse_line(const char *buf, char *phase, uint64_t *time_us, const char **name) {
+  const char *stamp = strstr(buf, "] ");
+  const char *mark = strstr(buf, "tracing_mark_write: ");
+  if (stamp == nullptr || mark == nullptr)
+    return false;
+  stamp += 2;
+  char *end = nullptr;
+  uint64_t sec = strtoull(stamp, &end, 10);
+  if (end == nullptr || *end != '.')
+    return false;
+  uint64_t nsec = strtoull(end + 1, &end, 10);
+  *time_us = sec * 1000000ULL + nsec / 1000ULL;
+
+  const char *payload = mark + strlen("tracing_mark_write: ");
+  if ((payload[0] != 'B' && payload[0] != 'E') || payload[1] != '|' || payload[2] != '1' || payload[3] != '|')
+    return false;
+  *phase = payload[0];
+  *name = payload + 4;
+  return true;
+}
+
+static ProfilerAggEntry *profiler_get_agg(const char *name) {
+  char copied[PROFILER_NAME_LEN];
+  profiler_copy_name(copied, name);
+  for (size_t i = 0; i < s_profiler_agg_count; i++) {
+    if (strncmp(s_profiler_aggs[i].name, copied, PROFILER_NAME_LEN) == 0)
+      return &s_profiler_aggs[i];
+  }
+  if (s_profiler_agg_count >= PROFILER_MAX_AGG)
+    return nullptr;
+  ProfilerAggEntry *entry = &s_profiler_aggs[s_profiler_agg_count++];
+  strncpy(entry->name, copied, PROFILER_NAME_LEN - 1);
+  entry->name[PROFILER_NAME_LEN - 1] = '\0';
+  entry->count = 0;
+  entry->total_us = 0;
+  entry->max_us = 0;
+  return entry;
+}
+
+static void profiler_add_duration(const char *name, uint32_t duration_us) {
+  ProfilerAggEntry *entry = profiler_get_agg(name);
+  if (entry == nullptr) {
+    s_profiler_parse_drops++;
+    return;
+  }
+  entry->count++;
+  entry->total_us += duration_us;
+  if (duration_us > entry->max_us)
+    entry->max_us = duration_us;
+}
+
 static void profiler_flush_cb(const char *buf) {
   if (buf == nullptr)
     return;
-  const char *line = buf;
-  while (*line != '\0') {
-    const char *end = strchr(line, '\n');
-    int len = end == nullptr ? (int) strlen(line) : (int) (end - line);
-    if (len > 0)
-      ESP_LOGI("lvgl.prof", "%.*s", len, line);
-    if (end == nullptr)
+  char phase = '\0';
+  uint64_t time_us = 0;
+  const char *name = nullptr;
+  if (!profiler_parse_line(buf, &phase, &time_us, &name)) {
+    if (buf[0] != '#')
+      s_profiler_parse_drops++;
+    return;
+  }
+  if (s_profiler_first_us == 0)
+    s_profiler_first_us = time_us;
+  s_profiler_last_us = time_us;
+
+  if (phase == 'B') {
+    if (s_profiler_stack_depth >= PROFILER_MAX_STACK) {
+      s_profiler_stack_overflow++;
+      return;
+    }
+    ProfilerStackEntry *entry = &s_profiler_stack[s_profiler_stack_depth++];
+    profiler_copy_name(entry->name, name);
+    entry->start_us = time_us;
+    return;
+  }
+
+  for (size_t i = s_profiler_stack_depth; i > 0; i--) {
+    ProfilerStackEntry *entry = &s_profiler_stack[i - 1];
+    if (strncmp(entry->name, name, PROFILER_NAME_LEN) == 0) {
+      uint64_t duration = time_us >= entry->start_us ? time_us - entry->start_us : 0;
+      profiler_add_duration(name, duration > UINT32_MAX ? UINT32_MAX : (uint32_t) duration);
+      s_profiler_stack_depth = i - 1;
+      return;
+    }
+  }
+  s_profiler_parse_drops++;
+}
+
+static void profiler_print_summary() {
+  uint64_t window_us = s_profiler_last_us > s_profiler_first_us ? s_profiler_last_us - s_profiler_first_us : 0;
+  ESP_LOGI("lvgl.prof", "SUMMARY window=%lluus unique=%u drops=%u stack_overflow=%u open=%u",
+           (unsigned long long) window_us,
+           (unsigned) s_profiler_agg_count,
+           (unsigned) s_profiler_parse_drops,
+           (unsigned) s_profiler_stack_overflow,
+           (unsigned) s_profiler_stack_depth);
+
+  bool selected[PROFILER_MAX_AGG] = {};
+  const size_t limit = std::min<size_t>(12, s_profiler_agg_count);
+  for (size_t rank = 0; rank < limit; rank++) {
+    size_t best = PROFILER_MAX_AGG;
+    for (size_t i = 0; i < s_profiler_agg_count; i++) {
+      if (selected[i])
+        continue;
+      if (best == PROFILER_MAX_AGG || s_profiler_aggs[i].total_us > s_profiler_aggs[best].total_us)
+        best = i;
+    }
+    if (best == PROFILER_MAX_AGG)
       break;
-    line = end + 1;
+    selected[best] = true;
+    const ProfilerAggEntry *entry = &s_profiler_aggs[best];
+    uint32_t avg_us = entry->count == 0 ? 0 : (uint32_t) (entry->total_us / entry->count);
+    ESP_LOGI("lvgl.prof", "COST rank=%u total=%lluus avg=%uus max=%uus count=%u name=%s",
+             (unsigned) (rank + 1),
+             (unsigned long long) entry->total_us,
+             (unsigned) avg_us,
+             (unsigned) entry->max_us,
+             (unsigned) entry->count,
+             entry->name);
   }
 }
 
@@ -172,6 +324,8 @@ extern "C" void lvgl_esphome_set_profiler_enabled(bool enabled) {
 #if LV_USE_PROFILER && LV_USE_PROFILER_BUILTIN
   if (!esphome::lvgl::s_profiler_initialized)
     esphome::lvgl::profiler_init_custom();
+  if (enabled)
+    esphome::lvgl::profiler_reset_summary();
   esphome::lvgl::s_profiler_enabled = enabled ? 1 : 0;
   lv_profiler_builtin_set_enable(enabled);
   ESP_LOGI("lvgl.prof", "profiler %s", enabled ? "enabled" : "disabled");
@@ -188,6 +342,7 @@ extern "C" void lvgl_esphome_profiler_flush(void) {
   lv_profiler_builtin_set_enable(false);
   esphome::lvgl::s_profiler_enabled = 0;
   lv_profiler_builtin_flush();
+  esphome::lvgl::profiler_print_summary();
   ESP_LOGI("lvgl.prof", "profiler flushed");
 #endif
 }
