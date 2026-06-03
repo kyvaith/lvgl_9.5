@@ -363,9 +363,10 @@ async def to_code(configs):
     # the FPS and ms numbers are still accurate.
     df.add_define("LV_USE_OS", "LV_OS_FREERTOS")
 
-    # Refresh period: 15 ms ≈ 66 Hz attempt rate (recommended by LVGL
-    # community for smoother sysmon readings; doesn't force higher FPS).
-    df.add_define("LV_DEF_REFR_PERIOD", "15")
+    # Refresh period: 10 ms ≈ 100 Hz attempt rate. This doesn't force
+    # higher FPS, but gives touch/animation timers more chances to catch
+    # the panel refresh cadence when the render loop is not saturated.
+    df.add_define("LV_DEF_REFR_PERIOD", "10")
 
     # Used by swipe transitions to animate static page images instead of
     # re-rendering the full live widget tree on every touch update.
