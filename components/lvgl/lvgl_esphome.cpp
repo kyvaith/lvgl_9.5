@@ -595,6 +595,11 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
       this->direct_last_flushed_buf_ = color_p;
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
       this->sync_direct_other_buffer_(area, color_p);
+      // Direct mode renders into the MIPI panel framebuffers.  Let the panel
+      // finish one refresh before LVGL starts drawing into the next buffer;
+      // otherwise fast animated widgets can occasionally race the scanout and
+      // show short horizontal artifacts.
+      this->wait_for_direct_frame_presented(20);
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
