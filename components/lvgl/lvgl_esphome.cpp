@@ -446,11 +446,10 @@ extern "C" void lvgl_esphome_set_profiler_enabled(bool enabled) {
   if (enabled)
     esphome::lvgl::profiler_reset_summary();
   esphome::lvgl::s_profiler_enabled = enabled ? 1 : 0;
-  // The full built-in trace is too expensive on ESP32-P4 during LVGL draw
-  // bursts. Keep it compiled for future deep dives, but use the lightweight
-  // runtime sampler here so A/B firmware runs remain comparable.
-  lv_profiler_builtin_set_enable(false);
-  ESP_LOGI("lvgl.prof", "profiler %s (manual sampler)", enabled ? "enabled" : "disabled");
+  // Enable LVGL's built-in trace only for short diagnostic windows. The
+  // always-on path remains the lightweight manual sampler.
+  lv_profiler_builtin_set_enable(enabled);
+  ESP_LOGI("lvgl.prof", "profiler %s (builtin trace + manual sampler)", enabled ? "enabled" : "disabled");
 #else
   if (enabled)
     ESP_LOGW("lvgl.prof", "profiler was requested but is not compiled in");
