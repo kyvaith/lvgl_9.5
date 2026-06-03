@@ -572,10 +572,8 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 
     default:
       if (direct_full_buffer) {
-        const int x_pad = this->width_ - x1 - width;
         for (auto *display : this->displays_) {
-          display->draw_pixels_at(x1, y1, width, height, src8, display::COLOR_ORDER_RGB, LV_BITNESS, this->big_endian_,
-                                  x1, y1, x_pad);
+          display->draw_pixels_at(x1, y1, width, height, src8, display::COLOR_ORDER_RGB, LV_BITNESS, this->big_endian_);
         }
         return;
       }
@@ -593,13 +591,16 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
     uint64_t t0 = esp_timer_get_time();
     if (this->direct_mode_active_) {
       this->direct_last_flushed_buf_ = color_p;
-      this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-      this->sync_direct_other_buffer_(area, color_p);
-      // Direct mode renders into the MIPI panel framebuffers.  Let the panel
-      // finish one refresh before LVGL starts drawing into the next buffer;
-      // otherwise fast animated widgets can occasionally race the scanout and
-      // show short horizontal artifacts.
-      this->wait_for_direct_frame_presented(20);
+      if (lv_display_flush_is_last(disp_drv)) {
+        this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+        // Direct mode renders into the MIPI panel framebuffers.  Let the panel
+        // finish one refresh before LVGL starts drawing into the next buffer;
+        // otherwise fast animated widgets can occasionally race the scanout and
+        // show short horizontal artifacts.
+        this->wait_for_direct_frame_presented(20);
+      } else {
+        this->sync_direct_framebuffer_area_(area, color_p);
+      }
     } else {
       this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
     }
@@ -615,6 +616,37 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
              lv_area_get_height(area), (unsigned long long)dt);
   }
   lv_display_flush_ready(disp_drv);
+}
+
+void LvglComponent::sync_direct_framebuffer_area_(const lv_area_t *area, uint8_t *color_p) {
+#ifdef USE_ESP32
+#if LV_COLOR_DEPTH == 32
+  constexpr size_t BYTES_PER_PIXEL = 3;
+#else
+  constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
+#endif
+  const int32_t y1 = std::max<int32_t>(0, area->y1);
+  const int32_t y2 = std::min<int32_t>(this->height_ - 1, area->y2);
+  if (y2 < y1)
+    return;
+  if (this->draw_buf_ == nullptr)
+    return;
+
+  const size_t row_bytes = this->width_ * BYTES_PER_PIXEL;
+  const size_t fb_bytes = this->width_ * this->height_ * BYTES_PER_PIXEL;
+  uint8_t *framebuffer = nullptr;
+  if (color_p >= this->draw_buf_ && color_p < this->draw_buf_ + fb_bytes) {
+    framebuffer = this->draw_buf_;
+  } else if (this->draw_buf2_ != nullptr && color_p >= this->draw_buf2_ && color_p < this->draw_buf2_ + fb_bytes) {
+    framebuffer = this->draw_buf2_;
+  } else {
+    return;
+  }
+
+  uint8_t *sync_start = framebuffer + (size_t) y1 * row_bytes;
+  const size_t sync_size = (size_t) (y2 - y1 + 1) * row_bytes;
+  esp_cache_msync(sync_start, sync_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+#endif
 }
 
 void LvglComponent::sync_direct_other_buffer_(const lv_area_t *area, uint8_t *color_p) {

@@ -255,6 +255,13 @@ async def to_code(configs):
 
     # suppress default enabling of extra widgets
     df.add_define("_LV_KCONFIG_PRESENT")
+    # Production firmware: keep LVGL's runtime hot path lean. These checks
+    # are useful while porting, but they add work to every render/touch cycle.
+    df.add_define("LV_USE_ASSERT_NULL", "0")
+    df.add_define("LV_USE_ASSERT_MALLOC", "0")
+    df.add_define("LV_USE_ASSERT_STYLE", "0")
+    df.add_define("LV_USE_ASSERT_MEM_INTEGRITY", "0")
+    df.add_define("LV_USE_ASSERT_OBJ", "0")
     # Memory alignment configuration for LVGL 9.5
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")  # LVGL default
     # Keep LV_DRAW_BUF_ALIGN at LVGL default (4). Setting higher values
