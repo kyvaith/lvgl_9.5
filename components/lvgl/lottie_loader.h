@@ -26,6 +26,8 @@ namespace lvgl {
 static const char *const LOTTIE_TAG = "lottie";
 static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
 static constexpr size_t LOTTIE_CACHE_ALIGN = 128;
+static constexpr size_t LOTTIE_INTERNAL_BUFFER_MAX_BYTES = 256 * 1024;
+static constexpr size_t LOTTIE_INTERNAL_BUFFER_HEADROOM_BYTES = 48 * 1024;
 
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
@@ -49,7 +51,8 @@ struct LottieContext {
     bool data_loaded;           // true after first successful parse
 
     // --- Runtime state (freed on screen unload) ---
-    uint8_t *pixel_buffer;      // PSRAM – width*height*4
+    uint8_t *pixel_buffer;      // canvas buffer – width*height*4
+    bool pixel_buffer_internal;
     StackType_t *task_stack;    // PSRAM – 64 KB
     StaticTask_t *task_tcb;     // internal RAM
     TaskHandle_t task_handle;
@@ -85,6 +88,30 @@ inline void lottie_sync_canvas_buffer(LottieContext *ctx) {
 
     esp_cache_msync(reinterpret_cast<void *>(start), end - start,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+}
+
+inline uint8_t *lottie_alloc_pixel_buffer(size_t alloc_bytes, bool *internal) {
+    if (internal != nullptr) {
+        *internal = false;
+    }
+
+    if (alloc_bytes <= LOTTIE_INTERNAL_BUFFER_MAX_BYTES) {
+        size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (largest_internal >= alloc_bytes + LOTTIE_INTERNAL_BUFFER_HEADROOM_BYTES) {
+            uint8_t *buf = (uint8_t *)heap_caps_aligned_alloc(
+                LOTTIE_CACHE_ALIGN, alloc_bytes,
+                MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+            if (buf != nullptr) {
+                if (internal != nullptr) {
+                    *internal = true;
+                }
+                return buf;
+            }
+        }
+    }
+
+    return (uint8_t *)heap_caps_aligned_alloc(
+        LOTTIE_CACHE_ALIGN, alloc_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
 // --------------------------------------------------------------------------
@@ -292,9 +319,11 @@ inline void lottie_free_resources(LottieContext *ctx) {
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
     ctx->stop_requested = false;
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie PSRAM freed (%ux%u = %u KB + 64 KB stack)",
+    ESP_LOGI(LOTTIE_TAG, "Lottie freed (%ux%u = %u KB %s buf + 64 KB stack)",
              (unsigned)ctx->width, (unsigned)ctx->height,
-             (unsigned)(ctx->width * ctx->height * 4 / 1024));
+             (unsigned)(ctx->width * ctx->height * 4 / 1024),
+             ctx->pixel_buffer_internal ? "SRAM" : "PSRAM");
+    ctx->pixel_buffer_internal = false;
 }
 
 // --------------------------------------------------------------------------
@@ -311,13 +340,16 @@ inline bool lottie_launch(LottieContext *ctx) {
     //   - lottie_init()                      → first load (from YAML config)
     //   - lottie_screen_unload_start_cb()    → re-loads  (actual state before hide)
 
-    // Allocate pixel buffer in PSRAM
+    // Prefer internal SRAM for small ARGB canvas buffers. Lottie updates the
+    // same canvas repeatedly, and keeping that source out of PSRAM avoids a
+    // fragile cache/PPA/display-read path on ESP32-P4. Larger animations still
+    // fall back to PSRAM to keep the UI bootable.
     size_t buf_bytes = (size_t)ctx->width * ctx->height * 4;
     size_t alloc_bytes = lottie_align_up(buf_bytes, LOTTIE_CACHE_ALIGN);
-    ctx->pixel_buffer = (uint8_t *)heap_caps_aligned_alloc(
-        LOTTIE_CACHE_ALIGN, alloc_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ctx->pixel_buffer_internal = false;
+    ctx->pixel_buffer = lottie_alloc_pixel_buffer(alloc_bytes, &ctx->pixel_buffer_internal);
     if (!ctx->pixel_buffer) {
-        ESP_LOGE(LOTTIE_TAG, "PSRAM alloc failed (%u bytes)", (unsigned)alloc_bytes);
+        ESP_LOGE(LOTTIE_TAG, "Pixel buffer alloc failed (%u bytes)", (unsigned)alloc_bytes);
         return false;
     }
     memset(ctx->pixel_buffer, 0, alloc_bytes);
@@ -347,11 +379,13 @@ inline bool lottie_launch(LottieContext *ctx) {
         return false;
     }
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie launched (runtime_hidden=%d, PSRAM: %u KB buf + 64 KB stack, free PSRAM: %u KB, free SRAM: %u KB)",
+    ESP_LOGI(LOTTIE_TAG, "Lottie launched (runtime_hidden=%d, %s: %u KB buf + 64 KB stack, free PSRAM: %u KB, free SRAM: %u KB, largest SRAM: %u KB)",
              (int)ctx->runtime_hidden,
+             ctx->pixel_buffer_internal ? "SRAM" : "PSRAM",
              (unsigned)(buf_bytes / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024));
     return true;
 }
 
@@ -392,11 +426,13 @@ inline void lottie_screen_unloaded_cb(lv_event_t *e) {
     if (ctx->pixel_buffer)  { heap_caps_free(ctx->pixel_buffer);  ctx->pixel_buffer = nullptr; }
     ctx->stop_requested = false;
 
-    ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
+    ESP_LOGI(LOTTIE_TAG, "Lottie FREED (%ux%u = %u KB %s buf + 64 KB stack) → free PSRAM: %u KB, free SRAM: %u KB",
              (unsigned)ctx->width, (unsigned)ctx->height,
              (unsigned)(ctx->width * ctx->height * 4 / 1024),
+             ctx->pixel_buffer_internal ? "SRAM" : "PSRAM",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    ctx->pixel_buffer_internal = false;
 }
 
 inline void lottie_screen_loaded_cb(lv_event_t *e) {
