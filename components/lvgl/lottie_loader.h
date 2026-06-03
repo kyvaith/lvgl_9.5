@@ -10,6 +10,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include "esp_cache.h"
+#include "esp_memory_utils.h"
 #include "esp_log.h"
 #include <cstring>
 
@@ -23,6 +25,7 @@ namespace lvgl {
 
 static const char *const LOTTIE_TAG = "lottie";
 static constexpr size_t LOTTIE_TASK_STACK_SIZE = 64 * 1024;
+static constexpr size_t LOTTIE_CACHE_ALIGN = 128;
 
 // Persistent context for each Lottie widget – tracks all PSRAM allocations,
 // the render task, and cached animation parameters for safe re-load.
@@ -56,6 +59,33 @@ struct LottieContext {
     bool user_wants_hidden;     // Save user's 'hidden' config from YAML
     bool runtime_hidden;        // Actual visibility at time of unload (captures script changes)
 };
+
+inline size_t lottie_align_up(size_t value, size_t align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+inline void lottie_sync_canvas_buffer(LottieContext *ctx) {
+    if (ctx == nullptr || ctx->obj == nullptr) return;
+
+    lv_draw_buf_t *draw_buf = lv_canvas_get_draw_buf(ctx->obj);
+    if (draw_buf == nullptr || draw_buf->data == nullptr) return;
+
+    uint8_t *data = static_cast<uint8_t *>(draw_buf->data);
+    if (!esp_ptr_external_ram(data)) return;
+
+    size_t len = draw_buf->data_size;
+    if (len == 0 && draw_buf->header.stride > 0 && draw_buf->header.h > 0) {
+        len = static_cast<size_t>(draw_buf->header.stride) * draw_buf->header.h;
+    }
+    if (len == 0) return;
+
+    uintptr_t start = reinterpret_cast<uintptr_t>(data) & ~(LOTTIE_CACHE_ALIGN - 1);
+    uintptr_t end = lottie_align_up(reinterpret_cast<uintptr_t>(data) + len, LOTTIE_CACHE_ALIGN);
+    if (end <= start) return;
+
+    esp_cache_msync(reinterpret_cast<void *>(start), end - start,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+}
 
 // --------------------------------------------------------------------------
 // Render task – runs on 64 KB PSRAM stack.
@@ -145,6 +175,7 @@ inline void lottie_load_task(void *param) {
     if (ctx->data_loaded && ctx->exec_cb != nullptr && ctx->anim_var != nullptr &&
         ctx->end_frame > ctx->start_frame) {
         ctx->exec_cb(ctx->anim_var, ctx->start_frame);
+        lottie_sync_canvas_buffer(ctx);
         lv_obj_invalidate(ctx->obj);
     }
 
@@ -198,6 +229,7 @@ inline void lottie_load_task(void *param) {
                 ctx->restart_requested = false;
                 lv_lock();
                 ctx->exec_cb(ctx->anim_var, ctx->start_frame);
+                lottie_sync_canvas_buffer(ctx);
                 lv_obj_invalidate(ctx->obj);
                 lv_unlock();
             }
@@ -222,6 +254,7 @@ inline void lottie_load_task(void *param) {
             if (elapsed_ms >= ctx->duration_ms) {
                 lv_lock();
                 ctx->exec_cb(ctx->anim_var, ctx->end_frame);
+                lottie_sync_canvas_buffer(ctx);
                 lv_unlock();
                 ESP_LOGI(LOTTIE_TAG, "Animation complete");
                 break;
@@ -231,6 +264,7 @@ inline void lottie_load_task(void *param) {
 
         lv_lock();
         ctx->exec_cb(ctx->anim_var, frame);
+        lottie_sync_canvas_buffer(ctx);
         lv_unlock();
 
         vTaskDelay(pdMS_TO_TICKS(frame_delay_ms));
@@ -279,13 +313,14 @@ inline bool lottie_launch(LottieContext *ctx) {
 
     // Allocate pixel buffer in PSRAM
     size_t buf_bytes = (size_t)ctx->width * ctx->height * 4;
-    ctx->pixel_buffer = (uint8_t *)heap_caps_malloc(
-        buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    size_t alloc_bytes = lottie_align_up(buf_bytes, LOTTIE_CACHE_ALIGN);
+    ctx->pixel_buffer = (uint8_t *)heap_caps_aligned_alloc(
+        LOTTIE_CACHE_ALIGN, alloc_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!ctx->pixel_buffer) {
-        ESP_LOGE(LOTTIE_TAG, "PSRAM alloc failed (%u bytes)", (unsigned)buf_bytes);
+        ESP_LOGE(LOTTIE_TAG, "PSRAM alloc failed (%u bytes)", (unsigned)alloc_bytes);
         return false;
     }
-    memset(ctx->pixel_buffer, 0, buf_bytes);
+    memset(ctx->pixel_buffer, 0, alloc_bytes);
 
     // Hide temporarily during async load (pixel buffer is blank)
     lv_obj_add_flag(ctx->obj, LV_OBJ_FLAG_HIDDEN);
