@@ -76,10 +76,16 @@ static bool ppa_rotate_display_buf(const void *src, void *dst, int32_t w, int32_
   // CONFIG_CACHE_L2_CACHE_LINE_128B=y. Use the larger value so the check
   // passes under both sdkconfigs.
   constexpr uintptr_t CACHE_LINE = 128;
-  if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0)
+  if ((reinterpret_cast<uintptr_t>(src) & (CACHE_LINE - 1)) != 0 ||
+      (reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0) {
+    static bool align_warned = false;
+    if (!align_warned) {
+      ESP_LOGW(TAG, "PPA rotation skipped: buffer not 128B-aligned (src=%p dst=%p) -> SW fallback",
+               src, dst);
+      align_warned = true;
+    }
     return false;
-  if ((reinterpret_cast<uintptr_t>(dst) & (CACHE_LINE - 1)) != 0)
-    return false;
+  }
 
   ppa_srm_rotation_angle_t ppa_angle;
   int32_t out_w, out_h;
@@ -378,6 +384,13 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   // Falls back to software automatically if PPA rejects the operation.
   if (s_display_srm_client != nullptr && this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     if (ppa_rotate_display_buf(ptr, this->rotate_buf_, width, height, this->rotation)) {
+      // One-time confirmation that the rotation runs on PPA hardware (≈0 CPU).
+      // This is the path that keeps FPS high while the camera streams.
+      static bool hw_logged = false;
+      if (!hw_logged) {
+        ESP_LOGI(TAG, "Display rotation: PPA HARDWARE active (CPU offloaded)");
+        hw_logged = true;
+      }
       // dst already points to rotate_buf_ (initialized above)
       // Coordinate update: identical geometry to the software path
       switch (this->rotation) {
@@ -406,7 +419,14 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
       }
       return;
     }
-    // PPA failed → fall through to software rotation below
+    // PPA refused this op → fall through to (slow) software rotation below.
+    // Warn once: this is the case that eats CPU and costs FPS with the camera.
+    static bool sw_warned = false;
+    if (!sw_warned) {
+      ESP_LOGW(TAG, "Display rotation: falling back to CPU software loops "
+                    "(PPA refused the op). FPS will drop. See earlier PPA logs for the reason.");
+      sw_warned = true;
+    }
   }
 #endif  // USE_LVGL_PPA
 
@@ -880,7 +900,11 @@ void LvglComponent::setup() {
   // Store buf_bytes - lv_display_set_buffers() is called at the END of setup()
   // to avoid triggering rendering before all callbacks and pages are configured.
   this->buf_bytes_ = buf_bytes;
-  this->rotation = display->get_rotation();
+  // If the user set `rotation:` on the lvgl: component, that value already lives
+  // in this->rotation (via set_lvgl_rotation). Otherwise inherit it from the
+  // display: component.
+  if (!this->rotation_configured_)
+    this->rotation = display->get_rotation();
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES) {
     this->rotate_buf_ = static_cast<lv_color_t *>(alloc_draw_buf(buf_bytes));
     if (this->rotate_buf_ == nullptr) {
