@@ -9,6 +9,8 @@
 #ifdef USE_LVGL_PPA
 #include "driver/ppa.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 void lvgl_port_ppa_v9_init(lv_display_t *display);
@@ -908,6 +910,14 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+#ifdef USE_LVGL_PPA
+  // Report where the draw buffer landed. Internal SRAM has ~10x the bandwidth
+  // of PSRAM and is not contended by the camera/DSI DMA, so a draw/rotate
+  // buffer in internal SRAM makes the PPA rotation dramatically faster. If it
+  // landed in PSRAM, reduce buffer_size: so it fits internal SRAM.
+  ESP_LOGI(TAG, "Draw buffer: %zu bytes @ %p (%s)", buf_bytes, this->draw_buf_,
+           esp_ptr_internal(this->draw_buf_) ? "INTERNAL SRAM" : "PSRAM (slow for rotation)");
+#endif
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
 #if LV_COLOR_DEPTH == 32
   // RGB888: 3 bytes per pixel, fully supported by PPA as destination
@@ -935,6 +945,8 @@ void LvglComponent::setup() {
       return;
     }
 #ifdef USE_LVGL_PPA
+    ESP_LOGI(TAG, "Rotate buffer: %zu bytes @ %p (%s)", buf_bytes, this->rotate_buf_,
+             esp_ptr_internal(this->rotate_buf_) ? "INTERNAL SRAM" : "PSRAM (slow for rotation)");
     if (s_display_srm_client != nullptr) {
       ESP_LOGI(TAG, "Display rotation will use PPA SRM hardware acceleration");
     }
