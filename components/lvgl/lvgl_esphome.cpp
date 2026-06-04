@@ -11,10 +11,22 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 extern "C" {
 void lv_draw_ppa_init(void);
 void lvgl_port_ppa_v9_init(lv_display_t *display);
 }
+// One pending display flush handed from flush_cb_ to the flush task.
+namespace esphome {
+namespace lvgl {
+struct FlushJob {
+  lv_area_t area;
+  uint8_t *buf;
+};
+}  // namespace lvgl
+}  // namespace esphome
 #endif
 
 #ifdef USE_LVGL_FPS_BENCHMARK
@@ -548,18 +560,51 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 }
 
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
-  if (!this->is_paused()) {
-    uint64_t t0 = esp_timer_get_time();
-    this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    uint64_t dt = esp_timer_get_time() - t0;
-    // Track flush wait time so loop() can subtract it when computing
-    // CPU%% — the synchronous DMA push isn't real CPU work.
-    this->perf_flush_us_ += dt;
-    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %llu us", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (unsigned long long)dt);
+  if (this->is_paused()) {
+    lv_display_flush_ready(disp_drv);
+    return;
   }
+#ifdef USE_LVGL_PPA
+  // Pipelined path: hand the rotation + panel push to the flush task and return
+  // immediately. With double buffering, LVGL renders the next frame into the
+  // other buffer while the task rotates+pushes this one. flush_ready is called
+  // from the task when the push completes.
+  if (this->async_flush_) {
+    FlushJob job;
+    job.area = *area;
+    job.buf = color_p;
+    // Queue has room (LVGL issues at most one flush before flush_ready); block
+    // briefly just in case so we never drop a frame.
+    xQueueSend(static_cast<QueueHandle_t>(this->flush_queue_), &job, portMAX_DELAY);
+    return;
+  }
+#endif
+  uint64_t t0 = esp_timer_get_time();
+  this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
+  uint64_t dt = esp_timer_get_time() - t0;
+  // Track flush wait time so loop() can subtract it when computing
+  // CPU%% — the synchronous DMA push isn't real CPU work.
+  this->perf_flush_us_ += dt;
+  ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %llu us", area->x1, area->y1, lv_area_get_width(area),
+           lv_area_get_height(area), (unsigned long long)dt);
   lv_display_flush_ready(disp_drv);
 }
+
+#ifdef USE_LVGL_PPA
+void LvglComponent::flush_task_entry_(void *arg) { static_cast<LvglComponent *>(arg)->flush_task_loop_(); }
+
+void LvglComponent::flush_task_loop_() {
+  auto queue = static_cast<QueueHandle_t>(this->flush_queue_);
+  FlushJob job;
+  for (;;) {
+    if (xQueueReceive(queue, &job, portMAX_DELAY) == pdTRUE) {
+      this->draw_buffer_(&job.area, reinterpret_cast<lv_color_data *>(job.buf));
+      // Signal LVGL that this buffer is free; it can now flush the other one.
+      lv_display_flush_ready(this->disp_);
+    }
+  }
+}
+#endif
 
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
   parent->add_on_idle_callback([this](uint32_t idle_time) {
@@ -950,6 +995,30 @@ void LvglComponent::setup() {
     if (s_display_srm_client != nullptr) {
       ESP_LOGI(TAG, "Display rotation will use PPA SRM hardware acceleration");
     }
+    // Pipeline the rotation+push: second draw buffer (double buffering) + a
+    // dedicated flush task. Lets LVGL render frame N+1 while frame N is being
+    // rotated and pushed — this is what gives esp_lvgl_port its fluid FPS with
+    // rotation. Falls back to the synchronous single-buffer path on any failure.
+    this->draw_buf2_ = static_cast<uint8_t *>(alloc_draw_buf(buf_bytes));
+    if (this->draw_buf2_ != nullptr) {
+      this->flush_queue_ = xQueueCreate(2, sizeof(FlushJob));
+      if (this->flush_queue_ != nullptr) {
+        BaseType_t ok = xTaskCreatePinnedToCore(&LvglComponent::flush_task_entry_, "lvgl_flush", 8192, this,
+                                                 5, reinterpret_cast<TaskHandle_t *>(&this->flush_task_), 1);
+        if (ok == pdPASS) {
+          this->async_flush_ = true;
+          ESP_LOGI(TAG, "Display rotation: pipelined flush enabled (double buffer + flush task)");
+        } else {
+          vQueueDelete(static_cast<QueueHandle_t>(this->flush_queue_));
+          this->flush_queue_ = nullptr;
+        }
+      }
+      if (!this->async_flush_) {
+        heap_caps_free(this->draw_buf2_);
+        this->draw_buf2_ = nullptr;
+        ESP_LOGW(TAG, "Pipelined flush unavailable -> synchronous rotation (lower FPS)");
+      }
+    }
 #endif
   }
   if (this->draw_start_callback_ != nullptr) {
@@ -978,7 +1047,13 @@ void LvglComponent::setup() {
 
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, this->buf_bytes_,
+  // When pipelined flush is active, pass the second buffer so LVGL double-buffers
+  // (render next frame while the flush task rotates+pushes the current one).
+  void *buf2 = nullptr;
+#ifdef USE_LVGL_PPA
+  buf2 = this->draw_buf2_;
+#endif
+  lv_display_set_buffers(this->disp_, this->draw_buf_, buf2, this->buf_bytes_,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
   this->buffers_configured_ = true;
 

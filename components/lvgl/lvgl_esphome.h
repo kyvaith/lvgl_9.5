@@ -258,6 +258,16 @@ class LvglComponent : public PollingComponent {
   Trigger<> *draw_start_callback_{};
   Trigger<> *draw_end_callback_{};
   lv_color_t *rotate_buf_{};
+  // Async (pipelined) display-rotation flush, matching esp_lvgl_port: the PPA
+  // rotation + panel push run on a dedicated FreeRTOS task so they overlap the
+  // next frame's render (the blocking PPA/DMA waits yield the CPU back to the
+  // render loop). Enabled only when rotation != 0 and PPA is available.
+  uint8_t *draw_buf2_{};          // second draw buffer (double buffering)
+  void *flush_task_{nullptr};     // TaskHandle_t
+  void *flush_queue_{nullptr};    // QueueHandle_t holding a FlushJob
+  bool async_flush_{false};
+  void flush_task_loop_();
+  static void flush_task_entry_(void *arg);
   bool buffers_configured_{false};  // Track if lv_display_set_buffers() has been called
   size_t buf_bytes_{0};              // Store buffer size for delayed configuration
   bool loop_started_{false};  // safe to perform LVGL ops only after loop() starts
