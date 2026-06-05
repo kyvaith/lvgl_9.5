@@ -2083,7 +2083,7 @@ SnapshotPanoramaCacheEntry snapshot_panorama_cache[4];
 
 constexpr lv_color_format_t SNAPSHOT_CF = LV_COLOR_FORMAT_RGB888;
 constexpr int SNAPSHOT_PANORAMA_SCALE = 1;
-constexpr bool SNAPSHOT_DIRECT_COMPOSITOR_ENABLED = false;
+constexpr bool SNAPSHOT_DIRECT_COMPOSITOR_ENABLED = true;
 
 lv_draw_buf_t *snapshot_cache_find(lv_obj_t *obj) {
   for (auto &entry : snapshot_cache) {
