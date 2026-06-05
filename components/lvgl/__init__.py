@@ -318,7 +318,10 @@ async def to_code(configs):
         df.add_define("LV_USE_LOG", "1")
         df.add_define("LV_USE_PROFILER", "1")
         df.add_define("LV_USE_PROFILER_BUILTIN", "1")
-        df.add_define("LV_PROFILER_BUILTIN_BUF_SIZE", "(512 * 1024)")
+        # Keep the built-in systrace buffer small enough for ESP32-P4 builds
+        # with large LVGL/voice/audio firmware. The custom flush callback
+        # aggregates profiler entries, so we do not need a huge in-RAM trace.
+        df.add_define("LV_PROFILER_BUILTIN_BUF_SIZE", "(64 * 1024)")
         df.add_define("LV_PROFILER_BUILTIN_DEFAULT_ENABLE", "0")
         df.add_define("LV_USE_PROFILER_BUILTIN_POSIX", "0")
         df.add_define("LV_PROFILER_INCLUDE", '"misc/lv_profiler_builtin.h"')
