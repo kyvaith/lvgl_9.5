@@ -1471,6 +1471,112 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
 #endif
 }
 
+bool LvglComponent::snapshot_scroll_direct_render(lv_draw_buf_t *content, int scroll_y, int viewport_w,
+                                                  int viewport_h) {
+#if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
+  uint64_t t0 = esp_timer_get_time();
+  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || content == nullptr || content->data == nullptr)
+    return false;
+  if (viewport_w != this->width_ || viewport_h != this->height_ || viewport_w <= 0 || viewport_h <= 0)
+    return false;
+  if (content->header.cf != LV_COLOR_FORMAT_RGB888 || content->header.w < viewport_w ||
+      content->header.h < viewport_h)
+    return false;
+
+  scroll_y = std::clamp(scroll_y, 0, std::max(0, (int) content->header.h - viewport_h));
+
+  constexpr size_t BYTES_PER_PIXEL = 3;
+  constexpr uintptr_t CACHE_ALIGN = 128;
+  const size_t row_bytes = (size_t) viewport_w * BYTES_PER_PIXEL;
+  const size_t fb_bytes = (size_t) viewport_w * viewport_h * BYTES_PER_PIXEL;
+  if (this->buf_bytes_ < fb_bytes)
+    return false;
+
+  uint8_t *target = this->next_direct_render_buffer_();
+  bool needs_sync = true;
+#ifdef USE_LVGL_PPA
+  if (s_display_srm_client != nullptr) {
+    ppa_srm_oper_config_t cfg = {};
+    cfg.in.buffer = content->data;
+    cfg.in.pic_w = content->header.w;
+    cfg.in.pic_h = content->header.h;
+    cfg.in.block_w = viewport_w;
+    cfg.in.block_h = viewport_h;
+    cfg.in.block_offset_x = 0;
+    cfg.in.block_offset_y = scroll_y;
+    cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
+    cfg.out.buffer = target;
+    cfg.out.buffer_size = this->buf_bytes_;
+    cfg.out.pic_w = viewport_w;
+    cfg.out.pic_h = viewport_h;
+    cfg.out.block_offset_x = 0;
+    cfg.out.block_offset_y = 0;
+    cfg.out.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
+    cfg.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+    cfg.scale_x = 1.0f;
+    cfg.scale_y = 1.0f;
+    cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+    cfg.mode = PPA_TRANS_MODE_BLOCKING;
+    esp_err_t ret = ppa_do_scale_rotate_mirror(s_display_srm_client, &cfg);
+    if (ret == ESP_OK) {
+      needs_sync = false;
+    } else {
+      static bool warned = false;
+      if (!warned) {
+        ESP_LOGW(TAG, "snapshot scroll: PPA RGB888 copy failed (%d), using CPU fallback", ret);
+        warned = true;
+      }
+    }
+  }
+#endif
+  if (needs_sync) {
+    const uint8_t *src_row = content->data + (size_t) scroll_y * content->header.stride;
+    uint8_t *dst_row = target;
+    for (int y = 0; y < viewport_h; y++) {
+      memcpy(dst_row, src_row, row_bytes);
+      src_row += content->header.stride;
+      dst_row += row_bytes;
+    }
+    uintptr_t start = reinterpret_cast<uintptr_t>(target) & ~(CACHE_ALIGN - 1);
+    uintptr_t end = (reinterpret_cast<uintptr_t>(target) + fb_bytes + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+    if (end > start)
+      esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+  }
+
+  this->present_direct_render_buffer_(target);
+#ifdef USE_LVGL_FPS_BENCHMARK
+  lvgl_esphome_note_frame();
+#endif
+  uint32_t frame_us = (uint32_t) (esp_timer_get_time() - t0);
+  static uint64_t last_log_us = 0;
+  static uint32_t frames = 0;
+  static uint64_t total_us = 0;
+  static uint32_t max_us = 0;
+  uint64_t now_us = esp_timer_get_time();
+  frames++;
+  total_us += frame_us;
+  if (frame_us > max_us)
+    max_us = frame_us;
+  if (last_log_us == 0)
+    last_log_us = now_us;
+  if (now_us - last_log_us >= 1000000ULL) {
+    uint32_t fps = (uint32_t) ((uint64_t) frames * 1000000ULL / (now_us - last_log_us));
+    if (s_swipe_logging_enabled) {
+      ESP_LOGI(TAG, "snapshot scroll: fps=%u avg=%lluus max=%uus y=%d h=%d", (unsigned) fps,
+               (unsigned long long) (frames == 0 ? 0 : total_us / frames), (unsigned) max_us, scroll_y,
+               (int) content->header.h);
+    }
+    last_log_us = now_us;
+    frames = 0;
+    total_us = 0;
+    max_us = 0;
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
 IdleTrigger::IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(std::move(timeout)) {
   parent->add_on_idle_callback([this](uint32_t idle_time) {
     if (!this->is_idle_ && idle_time > this->timeout_.value()) {
@@ -2063,6 +2169,19 @@ struct SnapshotSwipeState {
   LvglComponent *component{nullptr};
 };
 
+struct SnapshotScrollState {
+  lv_obj_t *root{nullptr};
+  lv_draw_buf_t *content_buf{nullptr};
+  int viewport_w{0};
+  int viewport_h{0};
+  int content_h{0};
+  int max_scroll_y{0};
+  int current_scroll_y{0};
+  bool direct_render{false};
+  bool root_was_hidden{false};
+  LvglComponent *component{nullptr};
+};
+
 struct SnapshotCacheEntry {
   lv_obj_t *obj{nullptr};
   lv_draw_buf_t *buf{nullptr};
@@ -2078,6 +2197,7 @@ struct SnapshotPanoramaCacheEntry {
 };
 
 SnapshotSwipeState snapshot_swipe_state;
+SnapshotScrollState snapshot_scroll_state;
 SnapshotCacheEntry snapshot_cache[4];
 SnapshotPanoramaCacheEntry snapshot_panorama_cache[4];
 
@@ -2409,6 +2529,25 @@ void snapshot_swipe_finish_now() {
   snapshot_swipe_cleanup();
   lv_obj_invalidate(lv_screen_active());
 }
+
+void snapshot_scroll_cleanup() {
+  s_snapshot_direct_active = false;
+  if (snapshot_scroll_state.root != nullptr) {
+    if (snapshot_scroll_state.root_was_hidden) {
+      lv_obj_add_flag(snapshot_scroll_state.root, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_clear_flag(snapshot_scroll_state.root, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (snapshot_scroll_state.content_buf != nullptr) {
+    lv_draw_buf_destroy(snapshot_scroll_state.content_buf);
+  }
+  snapshot_scroll_state = {};
+}
+
+int snapshot_scroll_clamp_y(int scroll_y) {
+  return std::clamp(scroll_y, 0, std::max(0, snapshot_scroll_state.max_scroll_y));
+}
 }  // namespace
 
 extern "C" bool lvgl_esphome_snapshot_cache_page(lv_obj_t *obj) {
@@ -2617,6 +2756,133 @@ extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, ui
 
 extern "C" void lvgl_esphome_snapshot_swipe_end(void) {
   snapshot_swipe_cleanup();
+  lv_obj_invalidate(lv_screen_active());
+}
+
+extern "C" bool lvgl_esphome_snapshot_scroll_begin(lv_obj_t *obj, int viewport_w, int viewport_h) {
+#if LV_USE_SNAPSHOT
+  snapshot_scroll_cleanup();
+  snapshot_swipe_cleanup();
+  if (obj == nullptr || viewport_w <= 0 || viewport_h <= 0)
+    return false;
+
+  auto *disp = lv_obj_get_display(obj);
+  auto *component = disp == nullptr ? nullptr : static_cast<LvglComponent *>(lv_display_get_user_data(disp));
+  if (component == nullptr || !SNAPSHOT_DIRECT_COMPOSITOR_ENABLED)
+    return false;
+
+  auto *parent = lv_obj_get_parent(obj);
+  const int old_scroll_y = lv_obj_get_scroll_y(obj);
+  const int max_scroll_y = std::max(0, lv_obj_get_scroll_top(obj) + lv_obj_get_scroll_bottom(obj));
+  const int content_h = std::max(viewport_h, viewport_h + max_scroll_y);
+  const int old_h = lv_obj_get_height(obj);
+  const bool was_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_stop_scroll_anim(obj);
+  lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_scroll_to_y(obj, 0, LV_ANIM_OFF);
+  lv_obj_set_height(obj, content_h);
+  lv_obj_update_layout(parent == nullptr ? obj : parent);
+
+  lv_draw_buf_t *content_buf = lv_snapshot_take(obj, SNAPSHOT_CF);
+
+  lv_obj_set_height(obj, old_h);
+  lv_obj_scroll_to_y(obj, old_scroll_y, LV_ANIM_OFF);
+  lv_obj_update_layout(parent == nullptr ? obj : parent);
+  if (was_hidden) {
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (content_buf == nullptr) {
+    ESP_LOGW(TAG, "snapshot scroll: failed for obj=%p content_h=%d", obj, content_h);
+    return false;
+  }
+  if (content_buf->header.cf != LV_COLOR_FORMAT_RGB888 || content_buf->header.w < viewport_w ||
+      content_buf->header.h < viewport_h) {
+    ESP_LOGW(TAG, "snapshot scroll: invalid buf cf=%d size=%dx%d", (int) content_buf->header.cf,
+             (int) content_buf->header.w, (int) content_buf->header.h);
+    lv_draw_buf_destroy(content_buf);
+    return false;
+  }
+#if defined(USE_ESP32)
+  {
+    constexpr uintptr_t CACHE_ALIGN = 128;
+    const size_t content_size =
+        content_buf->data_size != 0 ? content_buf->data_size : (size_t) content_buf->header.stride * content_buf->header.h;
+    uintptr_t start = reinterpret_cast<uintptr_t>(content_buf->data) & ~(CACHE_ALIGN - 1);
+    uintptr_t end = (reinterpret_cast<uintptr_t>(content_buf->data) + content_size + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+    if (end > start)
+      esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+  }
+#endif
+
+  snapshot_scroll_state.root = obj;
+  snapshot_scroll_state.content_buf = content_buf;
+  snapshot_scroll_state.viewport_w = viewport_w;
+  snapshot_scroll_state.viewport_h = viewport_h;
+  snapshot_scroll_state.content_h = content_buf->header.h;
+  snapshot_scroll_state.max_scroll_y = std::min(max_scroll_y, std::max(0, (int) content_buf->header.h - viewport_h));
+  snapshot_scroll_state.current_scroll_y = snapshot_scroll_clamp_y(old_scroll_y);
+  snapshot_scroll_state.root_was_hidden = was_hidden;
+  snapshot_scroll_state.component = component;
+
+  if (!component->snapshot_scroll_direct_render(content_buf, snapshot_scroll_state.current_scroll_y, viewport_w,
+                                                viewport_h)) {
+    snapshot_scroll_cleanup();
+    return false;
+  }
+  snapshot_scroll_state.direct_render = true;
+  s_snapshot_direct_active = true;
+  lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  if (s_swipe_logging_enabled) {
+    ESP_LOGI(TAG, "snapshot scroll: begin y=%d max=%d content_h=%d", snapshot_scroll_state.current_scroll_y,
+             snapshot_scroll_state.max_scroll_y, snapshot_scroll_state.content_h);
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
+extern "C" void lvgl_esphome_snapshot_scroll_update(int scroll_y) {
+  if (!snapshot_scroll_state.direct_render || snapshot_scroll_state.component == nullptr ||
+      snapshot_scroll_state.content_buf == nullptr)
+    return;
+  const int clamped_y = snapshot_scroll_clamp_y(scroll_y);
+  if (snapshot_scroll_state.component->snapshot_scroll_direct_render(
+          snapshot_scroll_state.content_buf, clamped_y, snapshot_scroll_state.viewport_w,
+          snapshot_scroll_state.viewport_h)) {
+    snapshot_scroll_state.current_scroll_y = clamped_y;
+  }
+}
+
+extern "C" void lvgl_esphome_snapshot_scroll_finish(int scroll_y) {
+  if (snapshot_scroll_state.root == nullptr) {
+    snapshot_scroll_cleanup();
+    return;
+  }
+  const int clamped_y = snapshot_scroll_clamp_y(scroll_y);
+  if (snapshot_scroll_state.direct_render && snapshot_scroll_state.component != nullptr &&
+      snapshot_scroll_state.content_buf != nullptr) {
+    snapshot_scroll_state.component->snapshot_scroll_direct_render(snapshot_scroll_state.content_buf, clamped_y,
+                                                                  snapshot_scroll_state.viewport_w,
+                                                                  snapshot_scroll_state.viewport_h);
+    snapshot_scroll_state.component->wait_for_direct_frame_presented(50);
+    snapshot_scroll_state.component->realign_direct_buffer_after_manual_present();
+  }
+
+  lv_obj_t *root = snapshot_scroll_state.root;
+  lv_obj_clear_flag(root, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_scroll_to_y(root, clamped_y, LV_ANIM_OFF);
+  snapshot_scroll_cleanup();
+  lv_obj_invalidate(lv_screen_active());
+  if (s_swipe_logging_enabled) {
+    ESP_LOGI(TAG, "snapshot scroll: finish y=%d", clamped_y);
+  }
+}
+
+extern "C" void lvgl_esphome_snapshot_scroll_end(void) {
+  snapshot_scroll_cleanup();
   lv_obj_invalidate(lv_screen_active());
 }
 

@@ -46,6 +46,10 @@ extern "C" bool lvgl_esphome_snapshot_swipe_begin(lv_obj_t *current, lv_obj_t *n
 extern "C" void lvgl_esphome_snapshot_swipe_update(int current_x, int next_x);
 extern "C" void lvgl_esphome_snapshot_swipe_finish(int current_x, int next_x, uint32_t duration_ms, bool commit);
 extern "C" void lvgl_esphome_snapshot_swipe_end(void);
+extern "C" bool lvgl_esphome_snapshot_scroll_begin(lv_obj_t *obj, int viewport_w, int viewport_h);
+extern "C" void lvgl_esphome_snapshot_scroll_update(int scroll_y);
+extern "C" void lvgl_esphome_snapshot_scroll_finish(int scroll_y);
+extern "C" void lvgl_esphome_snapshot_scroll_end(void);
 
 #ifdef USE_FONT
 #include "esphome/components/font/font.h"
@@ -240,6 +244,7 @@ class LvglComponent : public PollingComponent {
   bool snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw_buf_t *next, int current_x, int next_x, int width);
   bool snapshot_swipe_direct_render_panorama(const uint8_t *panorama, int current_x, int width, int scale,
                                              int initial_next_x);
+  bool snapshot_scroll_direct_render(lv_draw_buf_t *content, int scroll_y, int viewport_w, int viewport_h);
   bool wait_for_direct_frame_presented(uint32_t timeout_ms);
   void realign_direct_buffer_after_manual_present();
 
