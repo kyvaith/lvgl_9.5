@@ -1011,6 +1011,30 @@ void LvglComponent::setup() {
     if (s_display_srm_client != nullptr) {
       ESP_LOGI(TAG, "Display rotation will use PPA SRM hardware acceleration");
     }
+    // Pipeline the rotation+push: second draw buffer (double buffering) + a
+    // dedicated flush task. Lets LVGL render frame N+1 while frame N is being
+    // rotated and pushed — this is what gives esp_lvgl_port its fluid FPS with
+    // rotation. Falls back to the synchronous single-buffer path on any failure.
+    this->draw_buf2_ = static_cast<uint8_t *>(alloc_draw_buf(buf_bytes));
+    if (this->draw_buf2_ != nullptr) {
+      this->flush_queue_ = xQueueCreate(2, sizeof(FlushJob));
+      if (this->flush_queue_ != nullptr) {
+        BaseType_t ok = xTaskCreatePinnedToCore(&LvglComponent::flush_task_entry_, "lvgl_flush", 8192, this,
+                                                 5, reinterpret_cast<TaskHandle_t *>(&this->flush_task_), 1);
+        if (ok == pdPASS) {
+          this->async_flush_ = true;
+          ESP_LOGI(TAG, "Display rotation: pipelined flush enabled (double buffer + flush task)");
+        } else {
+          vQueueDelete(static_cast<QueueHandle_t>(this->flush_queue_));
+          this->flush_queue_ = nullptr;
+        }
+      }
+      if (!this->async_flush_) {
+        heap_caps_free(this->draw_buf2_);
+        this->draw_buf2_ = nullptr;
+        ESP_LOGW(TAG, "Pipelined flush unavailable -> synchronous rotation (lower FPS)");
+      }
+    }
 #endif
   }
   if (this->draw_start_callback_ != nullptr) {
@@ -1386,3 +1410,4 @@ void *lv_realloc_core(void *ptr, size_t size) {
   return new_ptr;
 }
 #endif
+
