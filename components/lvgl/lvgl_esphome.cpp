@@ -2773,7 +2773,7 @@ extern "C" bool lvgl_esphome_snapshot_scroll_begin(lv_obj_t *obj, int viewport_w
 
   auto *parent = lv_obj_get_parent(obj);
   const int old_scroll_y = lv_obj_get_scroll_y(obj);
-  const int max_scroll_y = std::max(0, lv_obj_get_scroll_top(obj) + lv_obj_get_scroll_bottom(obj));
+  const int max_scroll_y = std::max<int>(0, lv_obj_get_scroll_top(obj) + lv_obj_get_scroll_bottom(obj));
   const int content_h = std::max(viewport_h, viewport_h + max_scroll_y);
   const int old_h = lv_obj_get_height(obj);
   const bool was_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
