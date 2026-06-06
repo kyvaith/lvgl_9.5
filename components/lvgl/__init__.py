@@ -399,11 +399,13 @@ async def to_code(configs):
     # LVGL 9.5: Enable blur/frosted glass support (small code, useful for shadows)
     df.add_define("LV_USE_DRAW_SW_BLUR", "1")
 
-    df.add_define(
-        "LV_LOG_LEVEL",
-        f"LV_LOG_LEVEL_{df.LV_LOG_LEVELS[config_0[CONF_LOG_LEVEL]]}",
-    )
     lv_use_log = use_perf_monitor or use_profiler or _sdkconfig_bool("CONFIG_LV_USE_LOG", True)
+    lv_log_level = (
+        f"LV_LOG_LEVEL_{df.LV_LOG_LEVELS[config_0[CONF_LOG_LEVEL]]}"
+        if lv_use_log
+        else "LV_LOG_LEVEL_NONE"
+    )
+    df.add_define("LV_LOG_LEVEL", lv_log_level)
     df.add_define("LV_USE_LOG", "1" if lv_use_log else "0")
     cg.add_define(
         "LVGL_LOG_LEVEL",
