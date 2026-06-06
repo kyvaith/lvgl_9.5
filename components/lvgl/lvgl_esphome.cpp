@@ -14,8 +14,11 @@
 #ifdef USE_ESP32
 #include "esp_cache.h"
 #include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
 #include "esp_timer.h"
+#include "esp_private/esp_cache_private.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #endif
 
@@ -48,6 +51,12 @@ void lvgl_esphome_note_frame(void);
 
 namespace esphome::lvgl {
 static const char *const TAG = "lvgl";
+
+#ifdef USE_MIPI_DSI
+static void lvgl_mipi_async_flush_ready(void *arg) {
+  lv_display_flush_ready(static_cast<lv_display_t *>(arg));
+}
+#endif
 
 // Published CPU% (real work, flush wait excluded) for the LVGL sysmon
 // overlay. Updated each second by loop(). Read by __wrap_lv_timer_get_idle
@@ -612,6 +621,9 @@ namespace esphome::lvgl {
 #ifdef USE_LVGL_PPA
 /// Dedicated PPA SRM client for display framebuffer rotation (separate from LVGL draw unit).
 static ppa_client_handle_t s_display_srm_client = nullptr;
+/// Dedicated PPA SRM client for the partial framebuffer compositor.
+static ppa_client_handle_t s_compositor_srm_client = nullptr;
+static size_t s_compositor_srm_alignment = 0;
 
 /**
  * Attempt to rotate a display framebuffer using the PPA SRM hardware.
@@ -1082,6 +1094,33 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
 void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p) {
   if (!this->is_paused()) {
     uint64_t t0 = esp_timer_get_time();
+#ifdef USE_MIPI_DSI
+#ifdef USE_ESP32
+    if (this->partial_compositor_flush_(disp_drv, area, color_p, t0)) {
+      return;
+    }
+#endif
+    if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
+        this->displays_.size() == 1) {
+      auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+      const int width = lv_area_get_width(area);
+      const int height = lv_area_get_height(area);
+      if (mipi_display->draw_pixels_at_async(area->x1, area->y1, width, height, color_p, display::COLOR_ORDER_RGB,
+                                             LV_BITNESS, this->big_endian_, 0, 0, 0, lvgl_mipi_async_flush_ready,
+                                             disp_drv)) {
+        const uint32_t flush_us = (uint32_t) (esp_timer_get_time() - t0);
+        if (flush_us > this->perf_flush_max_us_)
+          this->perf_flush_max_us_ = flush_us;
+        const uint32_t flush_px = (uint32_t) width * (uint32_t) height;
+        this->perf_flush_px_ += flush_px;
+        profiler_note_flush(flush_us, flush_px);
+        this->perf_flush_us_ += flush_us;
+        ESP_LOGV(TAG, "async flush_cb, area=%d/%d, %d/%d scheduled in %lu us", area->x1, area->y1, width, height,
+                 (unsigned long) flush_us);
+        return;
+      }
+    }
+#endif
     if (this->direct_mode_active_) {
       this->direct_last_flushed_buf_ = color_p;
       if (lv_display_flush_is_last(disp_drv)) {
@@ -1225,9 +1264,360 @@ void LvglComponent::present_direct_render_buffer_(uint8_t *buffer) {
   this->direct_last_flushed_buf_ = buffer;
 }
 
+uint8_t *LvglComponent::next_snapshot_render_buffer_() {
+#ifdef USE_MIPI_DSI
+  if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
+      this->displays_.size() == 1) {
+    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+#if LV_COLOR_DEPTH == 32
+    constexpr size_t BYTES_PER_PIXEL = 3;
+#else
+    constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
+#endif
+    const size_t fb_bytes = (size_t) this->width_ * (size_t) this->height_ * BYTES_PER_PIXEL;
+    if (mipi_display != nullptr && mipi_display->get_frame_buffer_size() >= fb_bytes) {
+      auto *fb0 = mipi_display->get_frame_buffer(0);
+      auto *fb1 = mipi_display->get_frame_buffer(1);
+      if (fb0 != nullptr && fb1 != nullptr) {
+        if (this->snapshot_last_presented_buf_ == fb0)
+          return fb1;
+        if (this->snapshot_last_presented_buf_ == fb1)
+          return fb0;
+        // The DPI driver starts on fb0; fb1 is the least risky first manual target.
+        return fb1;
+      }
+    }
+  }
+#endif
+  return this->next_direct_render_buffer_();
+}
+
+bool LvglComponent::present_snapshot_render_buffer_(uint8_t *buffer) {
+  if (buffer == nullptr)
+    return false;
+#ifdef USE_MIPI_DSI
+  if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
+      this->displays_.size() == 1) {
+    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+    if (mipi_display != nullptr &&
+        (buffer == mipi_display->get_frame_buffer(0) || buffer == mipi_display->get_frame_buffer(1))) {
+      if (!mipi_display->present_frame_buffer(buffer, 0, this->height_ - 1))
+        return false;
+      this->snapshot_last_presented_buf_ = buffer;
+      return true;
+    }
+  }
+#endif
+  this->present_direct_render_buffer_(buffer);
+  this->snapshot_last_presented_buf_ = buffer;
+  return true;
+}
+
+#ifdef USE_ESP32
+bool LvglComponent::start_partial_compositor_() {
+#ifdef USE_MIPI_DSI
+  // Prefer ESP-IDF's native DPI async framebuffer copy path for partial LVGL
+  // buffers. The manual compositor remains in-tree for future experiments, but
+  // on ESP32-P4 DSI framebuffers the custom PPA/SRM path can hit cache msync
+  // validation errors and the CPU-copy fallback contends heavily with scanout.
+  ESP_LOGI(TAG, "LVGL partial framebuffer compositor disabled; using native MIPI DSI async flush");
+  return false;
+
+  if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES || this->displays_.size() != 1 || this->draw_buf2_ == nullptr)
+    return false;
+  auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+  if (mipi_display == nullptr || mipi_display->get_frame_buffer(0) == nullptr ||
+      mipi_display->get_frame_buffer(1) == nullptr) {
+    return false;
+  }
+#ifdef USE_LVGL_PPA
+  if (s_compositor_srm_alignment == 0) {
+    if (esp_cache_get_alignment(MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA, &s_compositor_srm_alignment) != ESP_OK ||
+        s_compositor_srm_alignment == 0) {
+      s_compositor_srm_alignment = 64;
+    }
+  }
+  if (s_compositor_srm_client == nullptr) {
+    ppa_client_config_t srm_cfg = {};
+    srm_cfg.oper_type = PPA_OPERATION_SRM;
+    srm_cfg.max_pending_trans_num = 1;
+    srm_cfg.data_burst_length = PPA_DATA_BURST_LENGTH_128;
+    esp_err_t ret = ppa_register_client(&srm_cfg, &s_compositor_srm_client);
+    if (ret == ESP_OK) {
+      ESP_LOGI(TAG, "LVGL partial framebuffer compositor PPA SRM client registered (alignment=%u)",
+               (unsigned) s_compositor_srm_alignment);
+    } else {
+      s_compositor_srm_client = nullptr;
+      ESP_LOGW(TAG, "LVGL partial framebuffer compositor PPA SRM client failed (%s); using CPU copy",
+               esp_err_to_name(ret));
+    }
+  }
+#endif
+  this->partial_compositor_front_buffer_ = mipi_display->get_frame_buffer(0);
+  this->partial_compositor_back_buffer_ = mipi_display->get_frame_buffer(1);
+  this->partial_compositor_queue_ = xQueueCreate(4, sizeof(PartialCompositorJob));
+  if (this->partial_compositor_queue_ == nullptr) {
+    ESP_LOGW(TAG, "LVGL partial framebuffer compositor queue allocation failed");
+    return false;
+  }
+#if CONFIG_FREERTOS_UNICORE
+  constexpr BaseType_t compositor_core = tskNO_AFFINITY;
+#else
+  constexpr BaseType_t compositor_core = 0;
+#endif
+  TaskHandle_t task_handle = nullptr;
+  const BaseType_t ok = xTaskCreatePinnedToCore(&LvglComponent::partial_compositor_task_trampoline_, "lvgl_fb_worker",
+                                                6144, this, 8, &task_handle, compositor_core);
+  if (ok != pdPASS) {
+    ESP_LOGW(TAG, "LVGL partial framebuffer compositor task allocation failed");
+    vQueueDelete(this->partial_compositor_queue_);
+    this->partial_compositor_queue_ = nullptr;
+    return false;
+  }
+  this->partial_compositor_task_handle_ = task_handle;
+  this->partial_compositor_active_ = true;
+  ESP_LOGI(TAG, "LVGL partial framebuffer compositor enabled on core %d", (int) compositor_core);
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool LvglComponent::partial_compositor_flush_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p,
+                                              uint64_t t0) {
+  if (!this->partial_compositor_active_ || this->partial_compositor_queue_ == nullptr)
+    return false;
+  PartialCompositorJob job{};
+  job.disp = disp_drv;
+  job.area = *area;
+  job.color_p = color_p;
+  job.last = lv_display_flush_is_last(disp_drv);
+  job.t0 = t0;
+  if (xQueueSend(this->partial_compositor_queue_, &job, pdMS_TO_TICKS(20)) != pdTRUE) {
+    ESP_LOGW(TAG, "LVGL partial framebuffer compositor queue full; falling back to synchronous flush");
+    return false;
+  }
+
+  const uint32_t schedule_us = (uint32_t) (esp_timer_get_time() - t0);
+  if (schedule_us > this->perf_flush_max_us_)
+    this->perf_flush_max_us_ = schedule_us;
+  const uint32_t flush_px = (uint32_t) lv_area_get_width(area) * (uint32_t) lv_area_get_height(area);
+  this->perf_flush_px_ += flush_px;
+  this->perf_flush_us_ += schedule_us;
+  profiler_note_flush(schedule_us, flush_px);
+  return true;
+}
+
+void LvglComponent::partial_compositor_task_trampoline_(void *arg) {
+  static_cast<LvglComponent *>(arg)->partial_compositor_task_();
+}
+
+void LvglComponent::partial_compositor_task_() {
+  while (true) {
+    PartialCompositorJob job{};
+    if (xQueueReceive(this->partial_compositor_queue_, &job, portMAX_DELAY) != pdTRUE)
+      continue;
+
+    const uint64_t start_us = esp_timer_get_time();
+    this->partial_compositor_copy_area_(this->partial_compositor_back_buffer_, job.area, job.color_p);
+    this->partial_compositor_record_dirty_(job.area);
+
+    bool frame_presented = false;
+    bool sync_full_dirty = false;
+    size_t sync_dirty_count = 0;
+    lv_area_t sync_dirty_areas[PARTIAL_COMPOSITOR_MAX_DIRTY_AREAS]{};
+
+    if (job.last) {
+      int y_start = 0;
+      int y_end = this->height_ - 1;
+      if (!this->partial_compositor_full_dirty_ && this->partial_compositor_dirty_count_ > 0) {
+        y_start = this->height_ - 1;
+        y_end = 0;
+        for (size_t i = 0; i < this->partial_compositor_dirty_count_; i++) {
+          y_start = std::min<int>(y_start, this->partial_compositor_dirty_areas_[i].y1);
+          y_end = std::max<int>(y_end, this->partial_compositor_dirty_areas_[i].y2);
+        }
+      }
+      sync_full_dirty = this->partial_compositor_full_dirty_;
+      sync_dirty_count = this->partial_compositor_dirty_count_;
+      for (size_t i = 0; i < sync_dirty_count; i++)
+        sync_dirty_areas[i] = this->partial_compositor_dirty_areas_[i];
+
+#ifdef USE_MIPI_DSI
+      auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+      mipi_display->present_frame_buffer(this->partial_compositor_back_buffer_, y_start, y_end);
+#endif
+      std::swap(this->partial_compositor_front_buffer_, this->partial_compositor_back_buffer_);
+      this->partial_compositor_dirty_count_ = 0;
+      this->partial_compositor_full_dirty_ = false;
+      frame_presented = true;
+    }
+
+    const uint32_t ready_dt_us = (uint32_t) (esp_timer_get_time() - start_us);
+    this->perf_compositor_ready_us_ += ready_dt_us;
+    this->perf_compositor_jobs_++;
+    if (ready_dt_us > this->perf_compositor_ready_max_us_)
+      this->perf_compositor_ready_max_us_ = ready_dt_us;
+    const uint32_t px = (uint32_t) lv_area_get_width(&job.area) * (uint32_t) lv_area_get_height(&job.area);
+    this->perf_compositor_px_ += px;
+    lv_display_flush_ready(job.disp);
+
+    if (frame_presented) {
+      if (sync_full_dirty) {
+        lv_area_t full{};
+        full.x1 = 0;
+        full.y1 = 0;
+        full.x2 = this->width_ - 1;
+        full.y2 = this->height_ - 1;
+        this->partial_compositor_copy_area_(this->partial_compositor_back_buffer_, full,
+                                            this->partial_compositor_front_buffer_, true);
+      } else {
+        for (size_t i = 0; i < sync_dirty_count; i++) {
+          this->partial_compositor_copy_area_(this->partial_compositor_back_buffer_, sync_dirty_areas[i],
+                                              this->partial_compositor_front_buffer_, true);
+        }
+      }
+    }
+
+    const uint32_t dt_us = (uint32_t) (esp_timer_get_time() - start_us);
+    this->perf_compositor_us_ += dt_us;
+    if (dt_us > this->perf_compositor_max_us_)
+      this->perf_compositor_max_us_ = dt_us;
+  }
+}
+
+void LvglComponent::partial_compositor_copy_area_(uint8_t *dst, const lv_area_t &area, const uint8_t *src,
+                                                  bool src_is_framebuffer) {
+  if (dst == nullptr || src == nullptr)
+    return;
+#if LV_COLOR_DEPTH == 32
+  constexpr size_t BYTES_PER_PIXEL = 3;
+#else
+  constexpr size_t BYTES_PER_PIXEL = LV_COLOR_DEPTH / 8;
+#endif
+  const int32_t x1 = std::max<int32_t>(0, area.x1);
+  const int32_t y1 = std::max<int32_t>(0, area.y1);
+  const int32_t x2 = std::min<int32_t>(this->width_ - 1, area.x2);
+  const int32_t y2 = std::min<int32_t>(this->height_ - 1, area.y2);
+  if (x2 < x1 || y2 < y1)
+    return;
+
+  const size_t row_bytes = (size_t) this->width_ * BYTES_PER_PIXEL;
+  const size_t framebuffer_bytes = row_bytes * (size_t) this->height_;
+  const size_t copy_bytes = (size_t) (x2 - x1 + 1) * BYTES_PER_PIXEL;
+  const size_t src_stride = src_is_framebuffer ? row_bytes : ((size_t) lv_area_get_width(&area) * BYTES_PER_PIXEL);
+
+#ifdef USE_LVGL_PPA
+  const int32_t copy_w = x2 - x1 + 1;
+  const int32_t copy_h = y2 - y1 + 1;
+  const int32_t src_pic_w = src_is_framebuffer ? this->width_ : lv_area_get_width(&area);
+  const int32_t src_pic_h = src_is_framebuffer ? this->height_ : lv_area_get_height(&area);
+  const int32_t src_off_x = src_is_framebuffer ? x1 : (x1 - area.x1);
+  const int32_t src_off_y = src_is_framebuffer ? y1 : (y1 - area.y1);
+  const bool src_geometry_ok = src_pic_w > 0 && src_pic_h > 0 && src_off_x >= 0 && src_off_y >= 0 &&
+                               (src_off_x + copy_w) <= src_pic_w && (src_off_y + copy_h) <= src_pic_h;
+  const size_t align = s_compositor_srm_alignment == 0 ? 64 : s_compositor_srm_alignment;
+  const bool out_aligned = (align != 0) && ((reinterpret_cast<uintptr_t>(dst) & (align - 1)) == 0) &&
+                           ((framebuffer_bytes & (align - 1)) == 0);
+  const bool ppa_safe_memory = esp_ptr_external_ram(src) && esp_ptr_external_ram(dst);
+  if (s_compositor_srm_client != nullptr && src_geometry_ok && out_aligned && ppa_safe_memory) {
+#if LV_COLOR_DEPTH == 32
+    constexpr ppa_srm_color_mode_t PPA_CM = PPA_SRM_COLOR_MODE_RGB888;
+#else
+    constexpr ppa_srm_color_mode_t PPA_CM = PPA_SRM_COLOR_MODE_RGB565;
+#endif
+    ppa_srm_oper_config_t cfg = {};
+    cfg.in.buffer = const_cast<uint8_t *>(src);
+    cfg.in.pic_w = src_pic_w;
+    cfg.in.pic_h = src_pic_h;
+    cfg.in.block_w = copy_w;
+    cfg.in.block_h = copy_h;
+    cfg.in.block_offset_x = src_off_x;
+    cfg.in.block_offset_y = src_off_y;
+    cfg.in.srm_cm = PPA_CM;
+    cfg.out.buffer = dst;
+    cfg.out.buffer_size = framebuffer_bytes;
+    cfg.out.pic_w = this->width_;
+    cfg.out.pic_h = this->height_;
+    cfg.out.block_offset_x = x1;
+    cfg.out.block_offset_y = y1;
+    cfg.out.srm_cm = PPA_CM;
+    cfg.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+    cfg.scale_x = 1.0f;
+    cfg.scale_y = 1.0f;
+    cfg.alpha_update_mode = PPA_ALPHA_NO_CHANGE;
+    cfg.mode = PPA_TRANS_MODE_BLOCKING;
+    esp_err_t ret = ppa_do_scale_rotate_mirror(s_compositor_srm_client, &cfg);
+    if (ret == ESP_OK)
+      return;
+
+    static uint32_t ppa_warn_count = 0;
+    if (ppa_warn_count < 8) {
+      ESP_LOGW(TAG,
+               "LVGL partial compositor PPA copy failed (%s): area=%d,%d-%d,%d src_fb=%d src_pic=%dx%d src_off=%d,%d align=%u dst=%p fb=%u",
+               esp_err_to_name(ret), (int) x1, (int) y1, (int) x2, (int) y2, src_is_framebuffer ? 1 : 0,
+               (int) src_pic_w, (int) src_pic_h, (int) src_off_x, (int) src_off_y, (unsigned) align, dst,
+               (unsigned) framebuffer_bytes);
+      ppa_warn_count++;
+    }
+  }
+#endif
+
+  const uint8_t *src_row = src_is_framebuffer
+                               ? src + ((size_t) y1 * row_bytes) + ((size_t) x1 * BYTES_PER_PIXEL)
+                               : src + ((size_t) (y1 - area.y1) * src_stride) +
+                                     ((size_t) (x1 - area.x1) * BYTES_PER_PIXEL);
+  uint8_t *dst_row = dst + ((size_t) y1 * row_bytes) + ((size_t) x1 * BYTES_PER_PIXEL);
+  for (int32_t y = y1; y <= y2; y++) {
+    memcpy(dst_row, src_row, copy_bytes);
+    dst_row += row_bytes;
+    src_row += src_stride;
+  }
+  uint8_t *sync_start = dst + (size_t) y1 * row_bytes;
+  const size_t sync_size = (size_t) (y2 - y1 + 1) * row_bytes;
+  esp_cache_msync(sync_start, sync_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+}
+
+void LvglComponent::partial_compositor_record_dirty_(const lv_area_t &area) {
+  if (this->partial_compositor_full_dirty_)
+    return;
+  if (this->partial_compositor_dirty_count_ >= PARTIAL_COMPOSITOR_MAX_DIRTY_AREAS) {
+    this->partial_compositor_full_dirty_ = true;
+    return;
+  }
+  lv_area_t clipped{};
+  clipped.x1 = std::max<int32_t>(0, area.x1);
+  clipped.y1 = std::max<int32_t>(0, area.y1);
+  clipped.x2 = std::min<int32_t>(this->width_ - 1, area.x2);
+  clipped.y2 = std::min<int32_t>(this->height_ - 1, area.y2);
+  if (clipped.x2 < clipped.x1 || clipped.y2 < clipped.y1)
+    return;
+  this->partial_compositor_dirty_areas_[this->partial_compositor_dirty_count_++] = clipped;
+}
+
+void LvglComponent::partial_compositor_sync_dirty_to_idle_() {
+  if (this->partial_compositor_front_buffer_ == nullptr || this->partial_compositor_back_buffer_ == nullptr)
+    return;
+  if (this->partial_compositor_full_dirty_) {
+    lv_area_t full{};
+    full.x1 = 0;
+    full.y1 = 0;
+    full.x2 = this->width_ - 1;
+    full.y2 = this->height_ - 1;
+    this->partial_compositor_copy_area_(this->partial_compositor_back_buffer_, full,
+                                        this->partial_compositor_front_buffer_, true);
+    return;
+  }
+  for (size_t i = 0; i < this->partial_compositor_dirty_count_; i++) {
+    this->partial_compositor_copy_area_(this->partial_compositor_back_buffer_, this->partial_compositor_dirty_areas_[i],
+                                        this->partial_compositor_front_buffer_, true);
+  }
+}
+#endif  // USE_ESP32
+
 bool LvglComponent::wait_for_direct_frame_presented(uint32_t timeout_ms) {
 #ifdef USE_MIPI_DSI
-  if (!this->direct_mode_active_ || this->displays_.empty())
+  if (this->displays_.empty())
     return false;
   auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
   return mipi_display != nullptr && mipi_display->wait_for_refresh_done(timeout_ms);
@@ -1259,7 +1649,7 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
                                                  int width) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
   uint64_t t0 = esp_timer_get_time();
-  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || current == nullptr || next == nullptr)
+  if (current == nullptr || next == nullptr)
     return false;
   if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0)
     return false;
@@ -1275,10 +1665,13 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
   constexpr uintptr_t CACHE_ALIGN = 128;
   const size_t row_bytes = (size_t) this->width_ * BYTES_PER_PIXEL;
   const size_t fb_bytes = (size_t) this->width_ * this->height_ * BYTES_PER_PIXEL;
-  if (this->buf_bytes_ < fb_bytes)
+  uint8_t *target = this->next_snapshot_render_buffer_();
+  if (target == nullptr)
     return false;
 
   auto sync_range = [](uint8_t *ptr, size_t len) {
+    if (esp_ptr_internal(ptr))
+      return;
     uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(CACHE_ALIGN - 1);
     uintptr_t end = (reinterpret_cast<uintptr_t>(ptr) + len + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
     if (end > start)
@@ -1304,7 +1697,7 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       cfg.in.block_offset_y = 0;
       cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
       cfg.out.buffer = dst;
-      cfg.out.buffer_size = this->buf_bytes_;
+      cfg.out.buffer_size = fb_bytes;
       cfg.out.pic_w = this->width_;
       cfg.out.pic_h = this->height_;
       cfg.out.block_offset_x = dst_x1;
@@ -1344,9 +1737,9 @@ bool LvglComponent::snapshot_swipe_direct_render(lv_draw_buf_t *current, lv_draw
       sync_range(dst, fb_bytes);
   };
 
-  uint8_t *target = this->next_direct_render_buffer_();
   render_to(target);
-  this->present_direct_render_buffer_(target);
+  if (!this->present_snapshot_render_buffer_(target))
+    return false;
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
 #endif
@@ -1383,7 +1776,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
                                                           int initial_next_x) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32) && defined(USE_LVGL_PPA)
   uint64_t t0 = esp_timer_get_time();
-  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || panorama == nullptr || s_display_srm_client == nullptr)
+  if (panorama == nullptr || s_display_srm_client == nullptr)
     return false;
   if (width != this->width_ || this->width_ <= 0 || this->height_ <= 0 || initial_next_x == 0 || scale <= 0)
     return false;
@@ -1400,9 +1793,9 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   const int source_x = std::clamp(window_x / scale, 0, source_width);
 
   const size_t fb_bytes = (size_t) this->width_ * this->height_ * OUT_BYTES_PER_PIXEL;
-  if (this->buf_bytes_ < fb_bytes)
+  uint8_t *target = this->next_snapshot_render_buffer_();
+  if (target == nullptr)
     return false;
-  uint8_t *target = this->next_direct_render_buffer_();
 
   ppa_srm_oper_config_t cfg = {};
   cfg.in.buffer = const_cast<uint8_t *>(panorama);
@@ -1414,7 +1807,7 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
   cfg.in.block_offset_y = 0;
   cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
   cfg.out.buffer = target;
-  cfg.out.buffer_size = this->buf_bytes_;
+  cfg.out.buffer_size = fb_bytes;
   cfg.out.pic_w = this->width_;
   cfg.out.pic_h = this->height_;
   cfg.out.block_offset_x = 0;
@@ -1435,7 +1828,8 @@ bool LvglComponent::snapshot_swipe_direct_render_panorama(const uint8_t *panoram
     }
     return false;
   }
-  this->present_direct_render_buffer_(target);
+  if (!this->present_snapshot_render_buffer_(target))
+    return false;
 
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
@@ -1475,7 +1869,7 @@ bool LvglComponent::snapshot_scroll_direct_render(lv_draw_buf_t *content, int sc
                                                   int viewport_h) {
 #if LV_COLOR_DEPTH == 32 && defined(USE_ESP32)
   uint64_t t0 = esp_timer_get_time();
-  if (!this->direct_mode_active_ || this->draw_buf_ == nullptr || content == nullptr || content->data == nullptr)
+  if (content == nullptr || content->data == nullptr)
     return false;
   if (viewport_w != this->width_ || viewport_h != this->height_ || viewport_w <= 0 || viewport_h <= 0)
     return false;
@@ -1489,10 +1883,10 @@ bool LvglComponent::snapshot_scroll_direct_render(lv_draw_buf_t *content, int sc
   constexpr uintptr_t CACHE_ALIGN = 128;
   const size_t row_bytes = (size_t) viewport_w * BYTES_PER_PIXEL;
   const size_t fb_bytes = (size_t) viewport_w * viewport_h * BYTES_PER_PIXEL;
-  if (this->buf_bytes_ < fb_bytes)
+  uint8_t *target = this->next_snapshot_render_buffer_();
+  if (target == nullptr)
     return false;
 
-  uint8_t *target = this->next_direct_render_buffer_();
   bool needs_sync = true;
 #ifdef USE_LVGL_PPA
   if (s_display_srm_client != nullptr) {
@@ -1506,7 +1900,7 @@ bool LvglComponent::snapshot_scroll_direct_render(lv_draw_buf_t *content, int sc
     cfg.in.block_offset_y = scroll_y;
     cfg.in.srm_cm = PPA_SRM_COLOR_MODE_RGB888;
     cfg.out.buffer = target;
-    cfg.out.buffer_size = this->buf_bytes_;
+    cfg.out.buffer_size = fb_bytes;
     cfg.out.pic_w = viewport_w;
     cfg.out.pic_h = viewport_h;
     cfg.out.block_offset_x = 0;
@@ -1539,11 +1933,12 @@ bool LvglComponent::snapshot_scroll_direct_render(lv_draw_buf_t *content, int sc
     }
     uintptr_t start = reinterpret_cast<uintptr_t>(target) & ~(CACHE_ALIGN - 1);
     uintptr_t end = (reinterpret_cast<uintptr_t>(target) + fb_bytes + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
-    if (end > start)
+    if (!esp_ptr_internal(target) && end > start)
       esp_cache_msync(reinterpret_cast<void *>(start), end - start, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
   }
 
-  this->present_direct_render_buffer_(target);
+  if (!this->present_snapshot_render_buffer_(target))
+    return false;
 #ifdef USE_LVGL_FPS_BENCHMARK
   lvgl_esphome_note_frame();
 #endif
@@ -1952,6 +2347,35 @@ void LvglComponent::setup() {
     return;
   }
   this->draw_buf_ = static_cast<uint8_t *>(buffer);
+#ifdef USE_MIPI_DSI
+  if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
+      this->displays_.size() == 1) {
+    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(display);
+    if (mipi_display != nullptr && mipi_display->get_frame_buffer(0) != nullptr &&
+        mipi_display->get_frame_buffer(1) != nullptr) {
+      this->draw_buf2_ = static_cast<uint8_t *>(alloc_draw_buf(buf_bytes));
+      if (this->draw_buf2_ == nullptr) {
+        ESP_LOGW(TAG, "LVGL partial framebuffer compositor disabled: second draw buffer allocation failed");
+      }
+    }
+  }
+#endif
+#ifdef USE_ESP32
+  auto memory_region = [](const void *ptr) -> const char * {
+    if (ptr == nullptr)
+      return "none";
+    if (esp_ptr_internal(ptr))
+      return "internal";
+    if (esp_ptr_external_ram(ptr))
+      return "psram";
+    return "other";
+  };
+#endif
+#ifdef USE_ESP32
+  ESP_LOGI(TAG, "LVGL draw buffer 1: %p %zu bytes in %s", this->draw_buf_, buf_bytes, memory_region(this->draw_buf_));
+  if (this->draw_buf2_ != nullptr)
+    ESP_LOGI(TAG, "LVGL draw buffer 2: %p %zu bytes in %s", this->draw_buf2_, buf_bytes, memory_region(this->draw_buf2_));
+#endif
   lv_display_set_resolution(this->disp_, this->width_, this->height_);
 #if LV_COLOR_DEPTH == 32
   // RGB888: 3 bytes per pixel, fully supported by PPA as destination
@@ -2003,9 +2427,15 @@ void LvglComponent::setup() {
   this->show_page(0, LV_SCR_LOAD_ANIM_NONE, 0);
   lv_display_trigger_activity(this->disp_);
 
+#ifdef USE_ESP32
+  if (!this->direct_mode_active_ && !this->full_refresh_) {
+    this->start_partial_compositor_();
+  }
+#endif
+
   // CRITICAL: Configure buffers at the VERY END of setup()
   // This avoids deadlock while ensuring buffers are ready before any callbacks execute
-  lv_display_set_buffers(this->disp_, this->draw_buf_, this->direct_mode_active_ ? this->draw_buf2_ : nullptr,
+  lv_display_set_buffers(this->disp_, this->draw_buf_, this->draw_buf2_,
                          this->buf_bytes_,
                          this->direct_mode_active_ ? LV_DISPLAY_RENDER_MODE_DIRECT
                                                    : (this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL
@@ -2093,21 +2523,86 @@ void LvglComponent::loop() {
 #endif
       uint32_t ppa_fill_tasks = 0;
       uint32_t ppa_img_tasks = 0;
+#ifdef USE_ESP32
+      const uint64_t compositor_us = this->perf_compositor_us_;
+      const uint64_t compositor_ready_us = this->perf_compositor_ready_us_;
+      const uint64_t compositor_px = this->perf_compositor_px_;
+      const uint32_t compositor_jobs = this->perf_compositor_jobs_;
+      const uint32_t compositor_max_ms = this->perf_compositor_max_us_ / 1000U;
+      const uint32_t compositor_ready_max_ms = this->perf_compositor_ready_max_us_ / 1000U;
+#else
+      const uint64_t compositor_us = 0;
+      const uint64_t compositor_ready_us = 0;
+      const uint64_t compositor_px = 0;
+      const uint32_t compositor_jobs = 0;
+      const uint32_t compositor_max_ms = 0;
+      const uint32_t compositor_ready_max_ms = 0;
+#endif
 #ifdef USE_LVGL_PPA
       ppa_fill_tasks = lv_draw_ppa_get_fill_task_count();
       ppa_img_tasks = lv_draw_ppa_get_img_task_count();
 #endif
+#ifdef USE_MIPI_DSI
+      mipi_dsi::AsyncFlushPerfStats dsi_stats{};
+      if (!this->displays_.empty()) {
+        auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+        if (mipi_display != nullptr)
+          mipi_display->consume_async_flush_perf(&dsi_stats);
+      }
+#else
+      struct {
+        uint32_t flushes{};
+        uint32_t zero_copy_flushes{};
+        uint32_t staged_flushes{};
+        uint32_t done_flushes{};
+        uint32_t unsafe_addr_flushes{};
+        uint32_t unsafe_row_flushes{};
+        uint32_t unsafe_size_flushes{};
+        uint64_t staged_bytes{};
+        uint64_t sync_us{};
+        uint64_t copy_us{};
+        uint64_t submit_us{};
+        uint64_t done_us{};
+        uint32_t sync_max_us{};
+        uint32_t copy_max_us{};
+        uint32_t submit_max_us{};
+        uint32_t done_max_us{};
+      } dsi_stats;
+#endif
       if (s_perf_logging_enabled) {
         ESP_LOGI(TAG,
-                 "perf1s: cpu=%u%% loop=%lluus flush=%lluus max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx free=%uK/%uK dir=%u ppa=%u/%u",
+                 "perf1s: cpu=%u%% loop=%lluus flush=%lluus dsi_sync=%lluus max=%ums dsi_copy=%lluus/%u max=%ums dsi_submit=%lluus max=%ums dsi_done=%lluus/%u max=%ums zc=%u stage=%u/%u unsafe=%u/%u/%u %lluKB comp=%lluus ready=%lluus/%u jobs max_comp=%ums max_ready=%ums max_loop=%ums max_flush=%ums inv=%lu areas/%lu kpx flush_px=%llu kpx comp_px=%llu kpx free=%uK/%uK dir=%u ppa=%u/%u",
                  (unsigned)cpu_pct,
                  (unsigned long long)cpu_us,
                  (unsigned long long)this->perf_flush_us_,
+                 (unsigned long long)dsi_stats.sync_us,
+                 (unsigned)(dsi_stats.sync_max_us / 1000U),
+                 (unsigned long long)dsi_stats.copy_us,
+                 (unsigned)dsi_stats.staged_flushes,
+                 (unsigned)(dsi_stats.copy_max_us / 1000U),
+                 (unsigned long long)dsi_stats.submit_us,
+                 (unsigned)(dsi_stats.submit_max_us / 1000U),
+                 (unsigned long long)dsi_stats.done_us,
+                 (unsigned)dsi_stats.done_flushes,
+                 (unsigned)(dsi_stats.done_max_us / 1000U),
+                 (unsigned)dsi_stats.zero_copy_flushes,
+                 (unsigned)dsi_stats.staged_flushes,
+                 (unsigned)dsi_stats.flushes,
+                 (unsigned)dsi_stats.unsafe_addr_flushes,
+                 (unsigned)dsi_stats.unsafe_row_flushes,
+                 (unsigned)dsi_stats.unsafe_size_flushes,
+                 (unsigned long long)(dsi_stats.staged_bytes / 1024ULL),
+                 (unsigned long long)compositor_us,
+                 (unsigned long long)compositor_ready_us,
+                 (unsigned)compositor_jobs,
+                 (unsigned)compositor_max_ms,
+                 (unsigned)compositor_ready_max_ms,
                  (unsigned)(this->perf_loop_max_us_ / 1000U),
                  (unsigned)(this->perf_flush_max_us_ / 1000U),
                  (unsigned long)this->perf_invalidated_areas_,
                  (unsigned long)(this->perf_invalidated_px_ / 1000ULL),
                  (unsigned long long)(this->perf_flush_px_ / 1000ULL),
+                 (unsigned long long)(compositor_px / 1000ULL),
                  (unsigned)free_psram_kb,
                  (unsigned)free_internal_kb,
                  (unsigned)s_direct_mode_active,
@@ -2126,6 +2621,14 @@ void LvglComponent::loop() {
       this->perf_invalidated_px_ = 0;
       this->perf_invalidated_areas_ = 0;
       this->perf_flush_px_ = 0;
+#ifdef USE_ESP32
+      this->perf_compositor_us_ = 0;
+      this->perf_compositor_ready_us_ = 0;
+      this->perf_compositor_px_ = 0;
+      this->perf_compositor_jobs_ = 0;
+      this->perf_compositor_max_us_ = 0;
+      this->perf_compositor_ready_max_us_ = 0;
+#endif
       this->perf_loop_max_us_ = 0;
       this->perf_flush_max_us_ = 0;
       this->perf_window_start_us_ = now_us;

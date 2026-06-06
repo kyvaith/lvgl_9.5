@@ -26,6 +26,12 @@
 #include <utility>
 #include <vector>
 
+#ifdef USE_ESP32
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#endif
+
 extern "C" uint32_t lvgl_esphome_get_cpu_pct(void);
 extern "C" uint32_t lvgl_esphome_get_flush_ms(void);
 extern "C" uint32_t lvgl_esphome_get_direct_mode_active(void);
@@ -260,6 +266,25 @@ class LvglComponent : public PollingComponent {
   void sync_direct_other_buffer_(const lv_area_t *area, uint8_t *color_p);
   uint8_t *next_direct_render_buffer_() const;
   void present_direct_render_buffer_(uint8_t *buffer);
+  uint8_t *next_snapshot_render_buffer_();
+  bool present_snapshot_render_buffer_(uint8_t *buffer);
+#ifdef USE_ESP32
+  struct PartialCompositorJob {
+    lv_display_t *disp{};
+    lv_area_t area{};
+    uint8_t *color_p{};
+    bool last{};
+    uint64_t t0{};
+  };
+  bool start_partial_compositor_();
+  bool partial_compositor_flush_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p, uint64_t t0);
+  static void partial_compositor_task_trampoline_(void *arg);
+  void partial_compositor_task_();
+  void partial_compositor_copy_area_(uint8_t *dst, const lv_area_t &area, const uint8_t *src,
+                                     bool src_is_framebuffer = false);
+  void partial_compositor_record_dirty_(const lv_area_t &area);
+  void partial_compositor_sync_dirty_to_idle_();
+#endif
   void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   std::vector<display::Display *> displays_{};
@@ -272,7 +297,25 @@ class LvglComponent : public PollingComponent {
   uint8_t *draw_buf_{};
   uint8_t *draw_buf2_{};
   uint8_t *direct_last_flushed_buf_{};
+  uint8_t *snapshot_last_presented_buf_{};
   bool direct_mode_active_{false};
+#ifdef USE_ESP32
+  static constexpr size_t PARTIAL_COMPOSITOR_MAX_DIRTY_AREAS = 48;
+  QueueHandle_t partial_compositor_queue_{};
+  TaskHandle_t partial_compositor_task_handle_{};
+  uint8_t *partial_compositor_front_buffer_{};
+  uint8_t *partial_compositor_back_buffer_{};
+  lv_area_t partial_compositor_dirty_areas_[PARTIAL_COMPOSITOR_MAX_DIRTY_AREAS]{};
+  size_t partial_compositor_dirty_count_{0};
+  bool partial_compositor_full_dirty_{false};
+  bool partial_compositor_active_{false};
+  uint64_t perf_compositor_us_{0};
+  uint64_t perf_compositor_ready_us_{0};
+  uint64_t perf_compositor_px_{0};
+  uint32_t perf_compositor_jobs_{0};
+  uint32_t perf_compositor_max_us_{0};
+  uint32_t perf_compositor_ready_max_us_{0};
+#endif
   lv_display_t *disp_{};
   uint16_t width_{};
   uint16_t height_{};

@@ -1,3 +1,79 @@
+# Atmosfera Echo Hub LVGL 9.5 Performance Edition
+
+This fork contains a performance-focused ESPHome/LVGL integration tuned for the
+Atmosfera Echo Hub: an ESP32-P4 based, 800x800 round MIPI-DSI true-color display
+with a premium watch-style UI. The goal is simple: keep the full visual quality
+of RGB888 LVGL while removing the expensive memory copies and display-driver
+stalls that normally make complex embedded interfaces feel heavy.
+
+The current optimized display path uses asynchronous MIPI-DSI flushing, DMA2D/PPA
+friendly alignment, zero-copy frame submission where safe, and explicit cache
+synchronization for correct pixels. In practice this turns LVGL from a slow
+"works, but feels embedded" UI into a much more responsive foundation for rich
+touch interfaces, animated dashboards, high-density settings screens, media
+controls, and circular WearOS-inspired layouts.
+
+## Why This Fork Matters
+
+- **Up to 10.6x faster display flush path** compared with the safe staging-buffer
+  path used during development.
+- **About 32% lower LVGL loop cost** in the controlled settings scroll workload.
+- **RGB888 true-color remains enabled**, so the UI keeps smooth gradients,
+  expressive color, and high quality assets.
+- **Zero display-copy overhead in the current good path**: staging copy time was
+  reduced from roughly 900 ms during the active test window to 0 ms.
+- **Stable visual output**: the final cache-synchronized zero-copy path preserves
+  the speed benefits without the horizontal tearing/corruption seen in unsafe
+  zero-copy experiments.
+- **Built for modern ESP32-P4 UI products**: round AMOLED/OLED dashboards,
+  Home Assistant satellites, premium media controls, settings lists, and
+  gesture-driven interfaces.
+
+## Measured Performance
+
+Controlled benchmark: `settings_scroll` auto-profiler on Atmosfera Echo Hub,
+ESP32-P4, ESP-IDF 5.5.4, LVGL 9.5, RGB888, PPA enabled, 800x800 MIPI-DSI panel,
+48 MHz pixel clock, 1.5 Gbps DSI lane bitrate.
+
+| Variant | Visual result | LVGL loop total | Flush total | Avg flush | Display copy | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| Full render baseline | OK | 1.659 s | 362.7 ms | 15.1 ms | n/a | Heavy full-frame cost |
+| Direct baseline | OK | 1.612 s | 268.7 ms | 11.2 ms | n/a | Better, still slow |
+| Async DSI staging | OK | 1.811 s | 449.7 ms | 551 us | ~900 ms | Safe but expensive copy path |
+| Unsafe zero-copy | Corrupted | 1.147 s | 31.0 ms | 37 us | 0 ms | Fast, but horizontal artifacts |
+| **Zero-copy + C2M cache sync** | **OK** | **1.230 s** | **42.2 ms** | **51 us** | **0 ms** | Current best path |
+
+### Headline Improvement
+
+| Comparison | Improvement |
+|---|---:|
+| Current path vs async staging flush total | **10.6x faster** |
+| Current path vs direct baseline flush total | **6.4x faster** |
+| Current path vs async staging LVGL loop total | **~32% lower** |
+| Staging display-copy cost removed | **~900 ms -> 0 ms** |
+
+These numbers are from a real product workload, not a synthetic single-widget
+demo. The workload scrolls a dense settings screen and stresses invalidation,
+font rendering, DMA flush scheduling, and display memory synchronization.
+
+## Optimization Highlights
+
+- Zero-copy RGB888 MIPI-DSI submission for aligned internal draw buffers.
+- Explicit cache synchronization in the CPU-to-memory direction before the DSI
+  driver reads rendered pixels.
+- DMA2D/PPA-aware flush accounting for copy, submit, ready, and sync costs.
+- Tuned ESP-IDF 5.5.x / PlatformIO build path for ESP32-P4.
+- QIO flash mode and verified PSRAM diagnostics.
+- Reduced dependence on expensive alpha-heavy UI effects in product screens.
+- Practical profiler hooks for comparing LVGL loop, flush, invalidation, PPA,
+  staging, and zero-copy behavior on real hardware.
+
+This fork is intended for builders who want ESPHome to drive ambitious LVGL
+interfaces on ESP32-P4 class hardware without giving up true color, rich
+layouts, or responsive touch UX.
+
+---
+
 # Guide Complet des Widgets LVGL 9.5 pour ESPHome CERTAIN nouveaux widgets de lvgl 9.5 ne sont pas fonctionnel pour l'instant,
 mais bientot avec des mise jour pour qu'il soit compatible avec esphome les test effectuer sont des esp32P4 
 
