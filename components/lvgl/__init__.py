@@ -10,6 +10,7 @@ from esphome.components.const import (
     CONF_DRAW_ROUNDING,
 )
 from esphome.components.display import Display
+from esphome.components.esp32.const import KEY_ESP32, KEY_SDKCONFIG_OPTIONS
 from esphome.components.psram import DOMAIN as PSRAM_DOMAIN
 import esphome.config_validation as cv
 from esphome.const import (
@@ -68,6 +69,18 @@ from .widgets import (
 
 # Import only what we actually use directly in this file
 from .widgets.msgbox import MSGBOX_SCHEMA, msgboxes_to_code
+
+
+def _sdkconfig_bool(name: str, default: bool) -> bool:
+    sdkconfig_options = CORE.data.get(KEY_ESP32, {}).get(KEY_SDKCONFIG_OPTIONS, {})
+    value = sdkconfig_options.get(name)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("1", "y", "yes", "true")
+
+
 from .widgets.obj import obj_spec  # Used in LVGL_SCHEMA
 from .widgets.page import (  # page_spec used in LVGL_SCHEMA
     add_pages,
@@ -382,7 +395,10 @@ async def to_code(configs):
         "LV_LOG_LEVEL",
         f"LV_LOG_LEVEL_{df.LV_LOG_LEVELS[config_0[CONF_LOG_LEVEL]]}",
     )
-    df.add_define("LV_USE_LOG", "1")
+    lv_use_log = config_0.get(CONF_USE_PERF_MONITOR, False) or _sdkconfig_bool(
+        "CONFIG_LV_USE_LOG", True
+    )
+    df.add_define("LV_USE_LOG", "1" if lv_use_log else "0")
     cg.add_define(
         "LVGL_LOG_LEVEL",
         cg.RawExpression(f"ESPHOME_LOG_LEVEL_{config_0[CONF_LOG_LEVEL]}"),
