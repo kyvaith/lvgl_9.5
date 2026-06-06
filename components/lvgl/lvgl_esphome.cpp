@@ -1102,7 +1102,7 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
 #endif
     if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
         this->displays_.size() == 1) {
-      auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+      auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
       const int width = lv_area_get_width(area);
       const int height = lv_area_get_height(area);
       if (mipi_display->draw_pixels_at_async(area->x1, area->y1, width, height, color_p, display::COLOR_ORDER_RGB,
@@ -1268,7 +1268,7 @@ uint8_t *LvglComponent::next_snapshot_render_buffer_() {
 #ifdef USE_MIPI_DSI
   if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
       this->displays_.size() == 1) {
-    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+    auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
 #if LV_COLOR_DEPTH == 32
     constexpr size_t BYTES_PER_PIXEL = 3;
 #else
@@ -1298,7 +1298,7 @@ bool LvglComponent::present_snapshot_render_buffer_(uint8_t *buffer) {
 #ifdef USE_MIPI_DSI
   if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
       this->displays_.size() == 1) {
-    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+    auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
     if (mipi_display != nullptr &&
         (buffer == mipi_display->get_frame_buffer(0) || buffer == mipi_display->get_frame_buffer(1))) {
       if (!mipi_display->present_frame_buffer(buffer, 0, this->height_ - 1))
@@ -1325,7 +1325,7 @@ bool LvglComponent::start_partial_compositor_() {
 
   if (this->rotation != display::DISPLAY_ROTATION_0_DEGREES || this->displays_.size() != 1 || this->draw_buf2_ == nullptr)
     return false;
-  auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+  auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
   if (mipi_display == nullptr || mipi_display->get_frame_buffer(0) == nullptr ||
       mipi_display->get_frame_buffer(1) == nullptr) {
     return false;
@@ -1444,7 +1444,7 @@ void LvglComponent::partial_compositor_task_() {
         sync_dirty_areas[i] = this->partial_compositor_dirty_areas_[i];
 
 #ifdef USE_MIPI_DSI
-      auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+      auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
       mipi_display->present_frame_buffer(this->partial_compositor_back_buffer_, y_start, y_end);
 #endif
       std::swap(this->partial_compositor_front_buffer_, this->partial_compositor_back_buffer_);
@@ -1619,7 +1619,7 @@ bool LvglComponent::wait_for_direct_frame_presented(uint32_t timeout_ms) {
 #ifdef USE_MIPI_DSI
   if (this->displays_.empty())
     return false;
-  auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+  auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
   return mipi_display != nullptr && mipi_display->wait_for_refresh_done(timeout_ms);
 #else
   return false;
@@ -2313,7 +2313,7 @@ void LvglComponent::setup() {
 
 #ifdef USE_MIPI_DSI
   if (this->direct_mode_) {
-    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(display);
+    auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(display);
     if (mipi_display != nullptr && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
         mipi_display->get_frame_buffer(0) != nullptr && mipi_display->get_frame_buffer(1) != nullptr &&
         mipi_display->get_frame_buffer_size() >= buf_bytes) {
@@ -2350,7 +2350,7 @@ void LvglComponent::setup() {
 #ifdef USE_MIPI_DSI
   if (!this->direct_mode_active_ && this->rotation == display::DISPLAY_ROTATION_0_DEGREES &&
       this->displays_.size() == 1) {
-    auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(display);
+    auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(display);
     if (mipi_display != nullptr && mipi_display->get_frame_buffer(0) != nullptr &&
         mipi_display->get_frame_buffer(1) != nullptr) {
       this->draw_buf2_ = static_cast<uint8_t *>(alloc_draw_buf(buf_bytes));
@@ -2545,7 +2545,7 @@ void LvglComponent::loop() {
 #ifdef USE_MIPI_DSI
       mipi_dsi::AsyncFlushPerfStats dsi_stats{};
       if (!this->displays_.empty()) {
-        auto *mipi_display = static_cast<mipi_dsi::MIPI_DSI *>(this->displays_[0]);
+        auto *mipi_display = static_cast<mipi_dsi::MipiDsi *>(this->displays_[0]);
         if (mipi_display != nullptr)
           mipi_display->consume_async_flush_perf(&dsi_stats);
       }
