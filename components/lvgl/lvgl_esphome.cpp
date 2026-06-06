@@ -2821,6 +2821,18 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
   const size_t panorama_stride = (size_t) panorama_width * BYTES_PER_PIXEL;
   const size_t panorama_size = panorama_stride * scaled_height;
   const size_t aligned_size = (panorama_size + CACHE_ALIGN - 1) & ~(CACHE_ALIGN - 1);
+
+  SnapshotPanoramaCacheEntry *slot = nullptr;
+  for (auto &entry : snapshot_panorama_cache) {
+    if (entry.buf == nullptr) {
+      slot = &entry;
+      break;
+    }
+  }
+  if (slot == nullptr)
+    slot = &snapshot_panorama_cache[0];
+  snapshot_panorama_free_entry(*slot);
+
   auto *panorama = static_cast<uint8_t *>(
       heap_caps_aligned_alloc(CACHE_ALIGN, aligned_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (panorama == nullptr) {
@@ -2840,16 +2852,6 @@ SnapshotPanoramaCacheEntry *snapshot_panorama_cache_prepare(lv_obj_t *left_obj, 
   }
   esp_cache_msync(panorama, aligned_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
-  SnapshotPanoramaCacheEntry *slot = nullptr;
-  for (auto &entry : snapshot_panorama_cache) {
-    if (entry.buf == nullptr) {
-      slot = &entry;
-      break;
-    }
-  }
-  if (slot == nullptr)
-    slot = &snapshot_panorama_cache[0];
-  snapshot_panorama_free_entry(*slot);
   slot->left = left_obj;
   slot->right = right_obj;
   slot->buf = panorama;
