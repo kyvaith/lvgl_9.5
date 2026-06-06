@@ -76,6 +76,10 @@ def _sdkconfig_bool(name: str, default: bool) -> bool:
     value = sdkconfig_options.get(name)
     if value is None:
         return default
+    return _config_bool(value)
+
+
+def _config_bool(value) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).lower() in ("1", "y", "yes", "true")
@@ -299,13 +303,17 @@ async def to_code(configs):
     if use_ppa_img:
         # Enable PPA SRM hardware rotation for images (0/90/180/270 degrees)
         cg.add_define("LV_USE_PPA_IMG")
-    if config_0.get(CONF_USE_FPS_BENCHMARK, False):
+    use_fps_benchmark = _config_bool(config_0.get(CONF_USE_FPS_BENCHMARK, False))
+    use_perf_monitor = _config_bool(config_0.get(CONF_USE_PERF_MONITOR, False))
+    use_profiler = _config_bool(config_0.get(CONF_USE_PROFILER, False))
+
+    if use_fps_benchmark:
         # Espressif esp_lvgl_adapter FPS sampler (P10/25/50/75/90 report).
         # lvgl_fps_benchmark_wrapper.cpp includes esphome/core/defines.h
         # and conditionally pulls in the .c — ESPHome only auto-compiles
         # .cpp at the component root.
         cg.add_define("USE_LVGL_FPS_BENCHMARK")
-    if config_0.get(CONF_USE_PERF_MONITOR, False):
+    if use_perf_monitor:
         # On-screen FPS/CPU overlay (bottom-right corner, native LVGL widget).
         # Perf monitor is gated by LV_USE_SYSMON in lv_conf_internal.h, which
         # is itself gated by LV_USE_LOG (text rendering for the label).
@@ -324,7 +332,7 @@ async def to_code(configs):
         # as the '[D][lvgl]: perf:' log (flush wait excluded).
         cg.add_build_flag("-Wl,--wrap=lv_timer_get_idle")
         cg.add_build_flag("-Wl,--wrap=lv_os_get_idle_percent")
-    if config_0.get(CONF_USE_PROFILER, False):
+    if use_profiler:
         # LVGL built-in systrace profiler. Runtime is controlled by
         # lvgl_esphome_set_profiler_enabled() so production firmware can keep
         # the instrumentation compiled out or idle.
@@ -395,9 +403,7 @@ async def to_code(configs):
         "LV_LOG_LEVEL",
         f"LV_LOG_LEVEL_{df.LV_LOG_LEVELS[config_0[CONF_LOG_LEVEL]]}",
     )
-    lv_use_log = config_0.get(CONF_USE_PERF_MONITOR, False) or _sdkconfig_bool(
-        "CONFIG_LV_USE_LOG", True
-    )
+    lv_use_log = use_perf_monitor or use_profiler or _sdkconfig_bool("CONFIG_LV_USE_LOG", True)
     df.add_define("LV_USE_LOG", "1" if lv_use_log else "0")
     cg.add_define(
         "LVGL_LOG_LEVEL",
@@ -636,6 +642,16 @@ async def to_code(configs):
     # Format: comma-separated list of lowercase LVGL widget names.
     widget_names = ",".join(sorted(use.lower() for use in helpers.lv_uses))
     cg.add_build_flag(f'-DLVGL_WIDGETS_USED=\\"{widget_names}\\"')
+
+    # A few optional LVGL diagnostic paths force LV_USE_LOG while building
+    # their own support code. For production builds that explicitly disable
+    # LVGL logging, apply the sdkconfig choice as the final lv_conf.h value.
+    if (
+        not use_perf_monitor
+        and not use_profiler
+        and not _sdkconfig_bool("CONFIG_LV_USE_LOG", True)
+    ):
+        df.get_data(df.KEY_LV_DEFINES)["LV_USE_LOG"] = "0"
 
     lv_conf_h_file = CORE.relative_src_path(LV_CONF_FILENAME)
     write_file_if_changed(lv_conf_h_file, generate_lv_conf_h())
