@@ -406,7 +406,8 @@ async def to_code(configs):
         else "LV_LOG_LEVEL_NONE"
     )
     df.add_define("LV_LOG_LEVEL", lv_log_level)
-    df.add_define("LV_USE_LOG", "1" if lv_use_log else "0")
+    if lv_use_log:
+        df.add_define("LV_USE_LOG", "1")
     cg.add_define(
         "LVGL_LOG_LEVEL",
         cg.RawExpression(f"ESPHOME_LOG_LEVEL_{config_0[CONF_LOG_LEVEL]}"),
