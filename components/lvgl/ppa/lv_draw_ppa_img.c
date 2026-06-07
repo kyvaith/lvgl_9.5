@@ -14,6 +14,7 @@
 #include "src/draw/lv_image_decoder_private.h"
 #include "src/draw/lv_image_decoder.h"
 #include <math.h>
+#include <string.h>
 
 static void lv_draw_img_ppa_core(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_dsc,
                                  const lv_image_decoder_dsc_t * decoder_dsc, lv_draw_image_sup_t * sup,
@@ -403,7 +404,6 @@ void lv_draw_ppa_img_rotate(lv_draw_task_t * t, const lv_draw_image_dsc_t * dsc,
     cfg.in.block_offset_y = 0;
     cfg.in.srm_cm         = lv_color_format_to_ppa_srm(src_cf);
 
-    lv_color_format_t dest_cf = (lv_color_format_t)dest_buf->header.cf;
     uint32_t out_bpp_r = (dest_cf == LV_COLOR_FORMAT_RGB565) ? 2u :
                          (dest_cf == LV_COLOR_FORMAT_RGB888)  ? 3u : 4u;
     uint32_t raw_bytes_r    = (uint32_t)dest_buf->header.w * dest_buf->header.h * out_bpp_r;
