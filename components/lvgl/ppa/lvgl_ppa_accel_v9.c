@@ -30,6 +30,8 @@
 #include "esp_memory_utils.h"
 #include "esp_log.h"
 
+uint32_t lvgl_esphome_get_perf_logging_enabled(void);
+
 #define LVGL_PORT_PPA_ALIGNMENT       64
 #define LVGL_PORT_PPA_ALIGN_UP(s, a)  (((s) + ((a) - 1)) & ~((a) - 1))
 #define LVGL_PORT_PPA_MIN_AREA_PX     100
@@ -54,6 +56,13 @@ static inline uint32_t ppa_now_ms(void) {
 static void ppa_stats_maybe_log(void) {
 #if PPA_STATS_INTERVAL_MS > 0
     uint32_t now = ppa_now_ms();
+    if (!lvgl_esphome_get_perf_logging_enabled()) {
+        s_ppa_hw_fills = 0;
+        s_ppa_hw_blends = 0;
+        s_ppa_sw_fallback = 0;
+        s_ppa_stats_last_log_ms = now;
+        return;
+    }
     if (s_ppa_stats_last_log_ms == 0) s_ppa_stats_last_log_ms = now;
     if (now - s_ppa_stats_last_log_ms >= PPA_STATS_INTERVAL_MS) {
         uint32_t total = s_ppa_hw_fills + s_ppa_hw_blends + s_ppa_sw_fallback;
